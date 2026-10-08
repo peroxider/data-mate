@@ -24,6 +24,7 @@ import type { RepositoryPort } from './repository.js';
 import type { ResolvedPaths } from './paths.js';
 import { sha256File } from './hashing.js';
 import { scanCsvFile } from './csv-scan.js';
+import { inferColumnProfiles, toCsv } from './csv-write.js';
 
 // ---------------------------------------------------------------------------
 // §9/§11 Workspace 与数据版本服务:WorkspacePort 的产品实现。
@@ -47,6 +48,19 @@ export interface WorkspaceServiceOptions {
 }
 
 const PARQUET_MAGIC = 'PAR1';
+
+export interface QueryMaterializationInput {
+  workspace_id: string;
+  dataset_name: string;
+  sql: string;
+  columns: string[];
+  rows: Array<Array<unknown>>;
+  truncated: boolean;
+  source_id: string;
+  driver: string;
+  max_rows: number;
+  idempotency_key: string | null;
+}
 
 interface ManifestFile {
   schema_version: 1;
@@ -239,6 +253,123 @@ export class WorkspaceService {
       scope: `format=${manifest.format}; original=${manifest.original_name}`,
       schema_json: schemaJson,
       manifest: manifest as unknown as Record<string, unknown>,
+      sha256,
+      created_at: nowIso(),
+      state: 'ready',
+    });
+
+    await this.#repository.datasets.put(dataset);
+    await this.#repository.datasetVersions.put(version);
+    await this.#repository.dataRefs.put(dataRef);
+    return { dataset, version, dataRef };
+  }
+
+  // --------------------------- SQL 查询结果物化 -------------------------------
+
+  /**
+   * 将 SQL 查询结果物化为不可变数据版本(§8 查询结果成为可追溯的数据版本)。
+   * scope 记录 SQL 与截断语义:truncated → completeness=truncated,
+   * 不计算虚假的全量结论(T09)。
+   */
+  async materializeQueryResult(input: QueryMaterializationInput): Promise<{
+    dataset: Dataset;
+    version: DatasetVersion;
+    dataRef: DataRef;
+  }> {
+    const workspace = await this.#repository.workspaces.get(input.workspace_id);
+    if (!workspace || workspace.state !== 'active') {
+      throw error('NOT_FOUND', `Workspace 不存在或未激活: ${input.workspace_id}`);
+    }
+
+    const csv = toCsv(input.columns, input.rows);
+    const columnsProfile = inferColumnProfiles(input.columns, input.rows);
+
+    const existingDatasets = await this.listDatasets(workspace.id);
+    const existing = existingDatasets.find((item) => item.name === input.dataset_name);
+    const latestVersion = existing ? (await this.listVersions(existing.id)).at(-1) ?? null : null;
+    const datasetId = existing ? existing.id : newId();
+    const versionId = newId();
+    const workspaceRootDir = join(this.#paths.workspacesDir, workspace.id);
+    const versionDir = join(workspaceRootDir, 'datasets', datasetId, 'versions', versionId);
+    await ensureDir(versionDir);
+
+    // 先写临时文件,再原子发布(§9 文件与元数据提交)
+    const tempFile = join(versionDir, `.query-result.${newId()}.tmp`);
+    await this.#writeFile(tempFile, csv);
+    const sha256 = await sha256File(tempFile);
+    const dataFile = `${sha256}.csv`;
+    const { rename } = await import('node:fs/promises');
+    await rename(tempFile, join(versionDir, dataFile));
+    const sizeBytes = Buffer.byteLength(csv, 'utf8');
+
+    const manifest = {
+      schema_version: 1,
+      dataset_id: datasetId,
+      version_id: versionId,
+      format: 'csv',
+      sha256,
+      size_bytes: sizeBytes,
+      row_count: input.rows.length,
+      row_count_status: 'exact',
+      encoding: 'utf-8',
+      delimiter: ',',
+      has_header: true,
+      original_name: 'query-result.csv',
+      data_file: dataFile,
+      columns: columnsProfile,
+      source: {
+        kind: 'sql_query',
+        source_id: input.source_id,
+        driver: input.driver,
+        sql: input.sql,
+        truncated: input.truncated,
+        max_rows: input.max_rows,
+        idempotency_key: input.idempotency_key,
+      },
+      generated_at: nowIso(),
+    } as Record<string, unknown>;
+
+    const schemaJson = JSON.stringify(columnsProfile, null, 2);
+    await this.#writeFile(join(versionDir, 'schema.json'), schemaJson);
+    await this.#writeFile(join(versionDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+    const dataset: Dataset = DatasetSchema.parse({
+      id: datasetId,
+      workspace_id: workspace.id,
+      name: input.dataset_name,
+      source_kind: 'sql_query',
+      created_at: existing ? existing.created_at : nowIso(),
+    });
+    const dataRef: DataRef = {
+      ref_id: newId(),
+      workspace_id: workspace.id,
+      dataset_version_id: versionId,
+      kind: 'table',
+      format: 'csv',
+      sha256,
+      size_bytes: sizeBytes,
+      row_count: input.rows.length,
+      row_count_status: 'exact',
+      schema_ref: `${datasetId}/versions/${versionId}/schema.json`,
+      completeness: input.truncated ? 'truncated' : 'complete',
+      scope: {
+        source_ref: `datasource:${input.source_id}`,
+        filter_description: input.sql,
+        sample_method: null,
+        sample_seed: null,
+        sampled_rows: null,
+        query_result_complete: !input.truncated,
+      },
+    };
+    const version: DatasetVersion = DatasetVersionSchema.parse({
+      id: versionId,
+      dataset_id: datasetId,
+      parents: latestVersion ? [latestVersion.id] : [],
+      data_ref_id: dataRef.ref_id,
+      operation: 'sql_extract',
+      scope: `sql_extract; driver=${input.driver}; truncated=${input.truncated ? 'true' : 'false'}`,
+      schema_json: schemaJson,
+      manifest,
       sha256,
       created_at: nowIso(),
       state: 'ready',

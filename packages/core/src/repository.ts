@@ -14,6 +14,7 @@ import {
   ArtifactSchema,
   ModelProfileSchema,
   DataSourceBindingSchema,
+  RunEventSchema,
   AnalystError,
 } from '@data-analyst/contracts';
 import type {
@@ -30,6 +31,7 @@ import type {
   Artifact,
   ModelProfile,
   DataSourceBinding,
+  RunEvent,
 } from '@data-analyst/contracts';
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,7 @@ export interface RepositoryPort {
   readonly artifacts: EntityStore<Artifact>;
   readonly modelProfiles: EntityStore<ModelProfile>;
   readonly dataSources: EntityStore<DataSourceBinding>;
+  readonly runEvents: EntityStore<RunEvent>;
   /** 将全部集合写入 JSON 快照文件 */
   snapshotTo(path: string): Promise<void>;
   /** 从 JSON 快照恢复;任何实体未通过 Schema 校验 → CONFIG_INVALID */
@@ -116,6 +119,7 @@ function collectionSchemas(): Record<string, { safeParse(v: unknown): { success:
     artifacts: ArtifactSchema,
     modelProfiles: ModelProfileSchema,
     dataSources: DataSourceBindingSchema,
+    runEvents: RunEventSchema,
   };
 }
 
@@ -133,6 +137,7 @@ export class InMemoryRepository implements RepositoryPort {
   readonly artifacts = new MemoryStore<Artifact>();
   readonly modelProfiles = new MemoryStore<ModelProfile>();
   readonly dataSources = new MemoryStore<DataSourceBinding>();
+  readonly runEvents = new MemoryStore<RunEvent>();
 
   async snapshotTo(path: string): Promise<void> {
     const snapshot: SnapshotFile = {
@@ -152,6 +157,7 @@ export class InMemoryRepository implements RepositoryPort {
         artifacts: await this.artifacts.list(),
         modelProfiles: await this.modelProfiles.list(),
         dataSources: await this.dataSources.list(),
+        runEvents: await this.runEvents.list(),
       },
     };
     await mkdir(dirname(path), { recursive: true });
@@ -245,6 +251,8 @@ export class InMemoryRepository implements RepositoryPort {
         return this.modelProfiles;
       case 'dataSources':
         return this.dataSources;
+      case 'runEvents':
+        return this.runEvents;
       default:
         throw new Error(`未知集合: ${name}`);
     }
