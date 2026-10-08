@@ -26,6 +26,7 @@ export const SessionBindingSchema = z.object({
 export type SessionBinding = z.infer<typeof SessionBindingSchema>;
 
 export const RunTriggerSchema = z.enum(['user_message', 'manual_cell', 'replay', 'system']);
+export type RunTrigger = z.infer<typeof RunTriggerSchema>;
 export const RunStatusSchema = z.enum([
   'queued',
   'running',
@@ -107,6 +108,21 @@ export const ExecutionRecordSchema = z.object({
   ended_at: IsoDatetimeSchema.nullable(),
 });
 export type ExecutionRecord = z.infer<typeof ExecutionRecordSchema>;
+
+/** §9 最小表集合 run_events:Run/Session/Cell 维度的结构化日志关联(FR17)。 */
+export const RunEventLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
+export const RunEventSchema = z.object({
+  id: UuidSchema,
+  run_id: UuidSchema.nullable(),
+  session_id: UuidSchema.nullable(),
+  cell_id: z.string().min(1).nullable(),
+  execution_id: UuidSchema.nullable(),
+  level: RunEventLevelSchema,
+  event: z.string().min(1).max(100),
+  message: z.string().max(2000),
+  at: IsoDatetimeSchema,
+});
+export type RunEvent = z.infer<typeof RunEventSchema>;
 
 export const MetricEvidenceSchema = z.object({
   id: UuidSchema,

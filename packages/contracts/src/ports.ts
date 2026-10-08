@@ -64,6 +64,8 @@ export type CellUpdate = z.infer<typeof CellUpdateSchema>;
 export const CellExecutionSchema = z.object({
   notebook_id: z.string().min(1),
   cell_id: z.string().min(1),
+  /** 关联的 AnalysisRun;取消语义要求旧输出只归属启动时的 Run */
+  run_id: UuidSchema.nullable(),
   expected_revision: z.number().int().nonnegative().nullable(),
   timeout_seconds: z.number().int().positive(),
   allow_stdin: z.literal(false),
@@ -242,6 +244,9 @@ export const QueryResultRefSchema = z.object({
   statement: z.string().min(1),
   truncated: z.boolean(),
   rows_fetched: z.number().int().nonnegative(),
+  /** 查询结果物化所得 Dataset/DataRef 版本,便于 CLI 与报告回链(无物化时为 null) */
+  dataset_id: UuidSchema.nullable(),
+  version_id: UuidSchema.nullable(),
 });
 export type QueryResultRef = z.infer<typeof QueryResultRefSchema>;
 
