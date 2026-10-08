@@ -2,7 +2,7 @@
 
 import sys
 
-from . import doctor, inspect_parquet, run_cell
+from . import doctor, inspect_parquet, run_cell, stats_compare, train_model
 
 
 def dispatch(argv: list[str]) -> int:
@@ -15,7 +15,13 @@ def dispatch(argv: list[str]) -> int:
         return inspect_parquet.main(rest)
     if command == "run-cell":
         return run_cell.main(rest)
-    sys.stderr.write(f"未知子命令: {command}\n可用子命令: doctor, inspect-parquet, run-cell\n")
+    if command == "stats-compare":
+        return stats_compare.main(rest)
+    if command == "train-model":
+        return train_model.main(rest)
+    sys.stderr.write(
+        f"未知子命令: {command}\n可用子命令: doctor, inspect-parquet, run-cell, stats-compare, train-model\n"
+    )
     return 2
 
 
