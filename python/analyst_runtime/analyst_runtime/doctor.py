@@ -14,7 +14,8 @@ import sys
 from typing import Any
 
 # dsh-notebook 的 Python 侧内核栈 + 数据栈(设计 §12、上游 dsh-notebook 0.2.4)
-PROBED_MODULES = ("ipykernel", "jupyter_client", "nbformat", "pandas", "numpy")
+# pyarrow 属 §11 导入过程的 Parquet 检查依赖(M1)。
+PROBED_MODULES = ("ipykernel", "jupyter_client", "nbformat", "pandas", "numpy", "pyarrow")
 
 
 def check_runtime() -> dict[str, Any]:

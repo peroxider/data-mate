@@ -4,6 +4,7 @@
     { "path": "packages/contracts" },
     { "path": "packages/core" },
     { "path": "packages/dsh-integration" },
+    { "path": "packages/notebook-adapter" },
     { "path": "apps/cli" }
   ]
 }

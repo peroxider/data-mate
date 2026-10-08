@@ -6,6 +6,7 @@ import {
   AnalysisRunSchema,
   DatasetSchema,
   DatasetVersionSchema,
+  DataRefSchema,
   NotebookRefSchema,
   KernelLeaseSchema,
   ExecutionRecordSchema,
@@ -21,6 +22,7 @@ import type {
   AnalysisRun,
   Dataset,
   DatasetVersion,
+  DataRef,
   NotebookRef,
   KernelLease,
   ExecutionRecord,
@@ -48,6 +50,7 @@ export interface RepositoryPort {
   readonly runs: EntityStore<AnalysisRun>;
   readonly datasets: EntityStore<Dataset>;
   readonly datasetVersions: EntityStore<DatasetVersion>;
+  readonly dataRefs: EntityStore<DataRef>;
   readonly notebooks: EntityStore<NotebookRef>;
   readonly kernelLeases: EntityStore<KernelLease>;
   readonly executions: EntityStore<ExecutionRecord>;
@@ -105,6 +108,7 @@ function collectionSchemas(): Record<string, { safeParse(v: unknown): { success:
     runs: AnalysisRunSchema,
     datasets: DatasetSchema,
     datasetVersions: DatasetVersionSchema,
+    dataRefs: DataRefSchema,
     notebooks: NotebookRefSchema,
     kernelLeases: KernelLeaseSchema,
     executions: ExecutionRecordSchema,
@@ -121,6 +125,7 @@ export class InMemoryRepository implements RepositoryPort {
   readonly runs = new MemoryStore<AnalysisRun>();
   readonly datasets = new MemoryStore<Dataset>();
   readonly datasetVersions = new MemoryStore<DatasetVersion>();
+  readonly dataRefs = new MemoryStore<DataRef>('ref_id');
   readonly notebooks = new MemoryStore<NotebookRef>();
   readonly kernelLeases = new MemoryStore<KernelLease>('session_id');
   readonly executions = new MemoryStore<ExecutionRecord>();
@@ -139,6 +144,7 @@ export class InMemoryRepository implements RepositoryPort {
         runs: await this.runs.list(),
         datasets: await this.datasets.list(),
         datasetVersions: await this.datasetVersions.list(),
+        dataRefs: await this.dataRefs.list(),
         notebooks: await this.notebooks.list(),
         kernelLeases: await this.kernelLeases.list(),
         executions: await this.executions.list(),
@@ -211,7 +217,7 @@ export class InMemoryRepository implements RepositoryPort {
     }
   }
 
-  #storeFor(name: string): EntityStore<{ id: string } | KernelLease> {
+  #storeFor(name: string): EntityStore<Record<string, unknown>> {
     switch (name) {
       case 'workspaces':
         return this.workspaces;
@@ -223,6 +229,8 @@ export class InMemoryRepository implements RepositoryPort {
         return this.datasets;
       case 'datasetVersions':
         return this.datasetVersions;
+      case 'dataRefs':
+        return this.dataRefs;
       case 'notebooks':
         return this.notebooks;
       case 'kernelLeases':
