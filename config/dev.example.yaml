@@ -1,0 +1,59 @@
+schema_version: 1
+server:
+  host: 127.0.0.1
+  port: 3080
+  public_base_url: http://127.0.0.1:3080
+auth:
+  mode: local-token
+paths:
+  data_dir: ./.m0/data
+  state_dir: ./.m0/state
+  cache_dir: ./.m0/cache
+  runtime_dir: ./.m0/runtime
+runtime:
+  profile: data-analysis-m0
+  python: auto
+  compute_device: cpu
+  max_active_kernels: 2
+  idle_kernel_timeout_seconds: 1800
+  cell_timeout_seconds: 600
+  interrupt_grace_seconds: 10
+  max_cell_output_mib: 8
+data:
+  max_upload_mib: 512
+  preview_rows: 100
+  model_sample_rows: 20
+  model_sample_cell_chars: 200
+  quality_ts_max_mib: 50
+  quality_ts_max_rows: 100000
+database:
+  readonly: true
+  statement_timeout_seconds: 60
+  max_result_rows: 1000000
+  max_result_mib: 256
+model:
+  profile_id: default-model
+  protocol: openai-chat
+  base_url: http://127.0.0.1:8000/v1
+  model: analyst-model
+  credential_ref: env:MODEL_API_KEY
+  connect_timeout_ms: 10000
+  response_timeout_ms: 120000
+  stream_idle_timeout_ms: 60000
+  temperature: 0.2
+  max_output_tokens: 8192
+  context_window_tokens: 65536
+  capabilities:
+    streaming: required
+    tool_calling: required
+    vision: disabled
+  extra_body: {}
+network:
+  mode: intranet
+  allowed_model_endpoints:
+    - http://127.0.0.1:8000/v1
+  internet_runtime_downloads: false
+logging:
+  level: info
+  structured: true
+  store_data_samples: false

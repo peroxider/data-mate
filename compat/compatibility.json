@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-08T10:48:02.051Z",
+  "checks": [
+    {
+      "id": "install-and-lock",
+      "item": "五组件精确版本安装且与锁一致",
+      "status": "pass",
+      "evidence": {
+        "command": "读取 compat/components.lock.json 并比对 .m0/profile/node_modules",
+        "at": "2026-10-08T10:47:20.501Z",
+        "detail": "五个 package/version/integrity 全部一致"
+      }
+    },
+    {
+      "id": "quality-computation",
+      "item": "进程内质量计算 + 原文件不可变(sha256)",
+      "status": "pass",
+      "evidence": {
+        "command": "node(进程内): loadTable + profileTable(tests/fixtures/fixture_sales.csv)",
+        "at": "2026-10-08T10:47:37.296Z",
+        "detail": "rows=4 columns=[channel,visitors,conversions] sha256=ef498e8ec26be7ac… 前后一致"
+      }
+    },
+    {
+      "id": "cli-boot",
+      "item": "本地 CLI 启动(doctor + version 含组件 BOM)",
+      "status": "pass",
+      "evidence": {
+        "command": "node apps/cli/dist/index.js doctor|version --json",
+        "at": "2026-10-08T10:47:55.231Z",
+        "detail": "两命令退出码 0,version 含五组件与 frozen_at"
+      }
+    },
+    {
+      "id": "profile-composition",
+      "item": "headless profile 组合启动(--dump-config)",
+      "status": "pending",
+      "evidence": {
+        "command": "DSH_HOME=<repo>/.m0 dsh --profile data-analysis-m0 --dump-config",
+        "at": "2026-10-08T10:47:55.354Z",
+        "detail": "dsh 拒绝符号链接注册的 profile 目录(要求 'dsh plugin --profile data-analysis-m0 add <package>' 创建)。证据: \t\tif (template === void 0) throw new Error(`${binName}: profile ${JSON.stringify(name)} does not exist; create it with 'dsh plugin --profile ${name} add <package>'`);。该路径会经 pnpm 重新解析依赖,M1 执行并记录实际使用路径。"
+      }
+    },
+    {
+      "id": "notebook-kernel-stack",
+      "item": "Notebook 内核栈(ipykernel/jupyter_client/nbformat)",
+      "status": "pending",
+      "evidence": {
+        "command": "PYTHONPATH=. python3 -m analyst_runtime doctor --json",
+        "at": "2026-10-08T10:47:57.733Z",
+        "detail": "缺失: [ipykernel, jupyter_client, nbformat](环境准备项,本产品绝不安装依赖,§7)。双 Session 映射与 Cell 生命周期验证在 M1。"
+      }
+    },
+    {
+      "id": "sql-materialization",
+      "item": "SQL 结果物化",
+      "status": "pending",
+      "evidence": {
+        "command": "n/a",
+        "at": "2026-10-08T10:47:57.733Z",
+        "detail": "M0 环境无数据库端点(设计 §7:属环境准备);物化验证在 M1。"
+      }
+    },
+    {
+      "id": "model-convergence",
+      "item": "模型汇聚(多轮工具调用收敛)",
+      "status": "pending",
+      "evidence": {
+        "command": "n/a",
+        "at": "2026-10-08T10:47:57.733Z",
+        "detail": "M0 无模型端点(内网 base_url 未配置);协议栈已锁定 openai-chat,汇聚验证在 M1。"
+      }
+    },
+    {
+      "id": "genui-runtime",
+      "item": "GenUI 注册表/DOM 双通道渲染",
+      "status": "pending",
+      "evidence": {
+        "command": "n/a",
+        "at": "2026-10-08T10:47:57.733Z",
+        "detail": "tool-inventory.json 已静态记录 render_ui/validate_dsh_ui 候选;运行时确认需模型端点 + 浏览器 DOM,M1 执行。"
+      }
+    },
+    {
+      "id": "offline-static",
+      "item": "离线静态资源扫描(仅静态)",
+      "status": "pass",
+      "evidence": {
+        "command": "静态扫描五组件 .js/.mjs/.cjs 中的 http(s):// 外部 URL",
+        "at": "2026-10-08T10:48:02.051Z",
+        "detail": "外部 URL 引用计数: {\"@deepseek-ai/dsh\":0,\"@beihaizb/dsh-notebook\":2,\"dsh-data-quality\":0,\"@yejiming/dsh-data-agent\":25,\"@changfenhuang/dsh-genui\":38} 合计 65。仅静态分析;运行时断网验证(§21 实际断网 + 请求记录)在 M1。"
+      }
+    }
+  ],
+  "summary": {
+    "pass": 4,
+    "fail": 0,
+    "pending": 5
+  }
+}

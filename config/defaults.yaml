@@ -1,0 +1,35 @@
+schema_version: 1
+server:
+  host: 127.0.0.1
+  port: 3080
+auth:
+  mode: local-token
+paths:
+  data_dir: ./data
+  state_dir: ./state
+  cache_dir: ./cache
+runtime:
+  profile: data-analysis
+  python: auto
+  compute_device: cpu
+  max_active_kernels: 2
+  idle_kernel_timeout_seconds: 1800
+  cell_timeout_seconds: 600
+  interrupt_grace_seconds: 10
+  max_cell_output_mib: 8
+data:
+  max_upload_mib: 512
+  preview_rows: 100
+  model_sample_rows: 20
+  model_sample_cell_chars: 200
+  quality_ts_max_mib: 50
+  quality_ts_max_rows: 100000
+database:
+  readonly: true
+  statement_timeout_seconds: 60
+  max_result_rows: 1000000
+  max_result_mib: 256
+logging:
+  level: info
+  structured: true
+  store_data_samples: false

@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-10-08T10:17:39.941Z",
+  "components": {
+    "dsh": {
+      "package": "@deepseek-ai/dsh",
+      "version": "0.2.0-rc.2",
+      "method": "static-regex-scan(仅静态;运行时确认在 W7 verify-contracts)",
+      "files_scanned": 7,
+      "candidate_tools": [],
+      "runtime_confirmed": "pending-W7"
+    },
+    "dsh_notebook": {
+      "package": "@beihaizb/dsh-notebook",
+      "version": "0.2.4",
+      "method": "static-regex-scan(仅静态;运行时确认在 W7 verify-contracts)",
+      "files_scanned": 3,
+      "candidate_tools": [
+        "nb_add_cell",
+        "nb_apply_suggestion",
+        "nb_cell_history",
+        "nb_clear_outputs",
+        "nb_context",
+        "nb_delete_cell",
+        "nb_edit_and_run_cell",
+        "nb_edit_cell",
+        "nb_error_context",
+        "nb_get",
+        "nb_inspect_object",
+        "nb_kernel_interrupt",
+        "nb_kernel_list",
+        "nb_kernel_restart",
+        "nb_kernel_restart_and_clear",
+        "nb_kernel_restart_and_run_all",
+        "nb_kernel_select",
+        "nb_list",
+        "nb_list_vars",
+        "nb_move_cell",
+        "nb_new",
+        "nb_open",
+        "nb_revert_cell",
+        "nb_run_all",
+        "nb_run_cell",
+        "nb_save",
+        "nb_set_cwd"
+      ],
+      "runtime_confirmed": "pending-W7"
+    },
+    "dsh_data_quality": {
+      "package": "dsh-data-quality",
+      "version": "0.3.18",
+      "method": "static-regex-scan(仅静态;运行时确认在 W7 verify-contracts)",
+      "files_scanned": 23,
+      "candidate_tools": [
+        "data_clean",
+        "data_profile",
+        "data_report",
+        "data_verify"
+      ],
+      "runtime_confirmed": "pending-W7"
+    },
+    "dsh_data_agent": {
+      "package": "@yejiming/dsh-data-agent",
+      "version": "0.2.2",
+      "method": "static-regex-scan(仅静态;运行时确认在 W7 verify-contracts)",
+      "files_scanned": 10,
+      "candidate_tools": [],
+      "runtime_confirmed": "pending-W7"
+    },
+    "dsh_genui": {
+      "package": "@changfenhuang/dsh-genui",
+      "version": "0.11.4",
+      "method": "static-regex-scan(仅静态;运行时确认在 W7 verify-contracts)",
+      "files_scanned": 7,
+      "candidate_tools": [
+        "render_ui",
+        "validate_dsh_ui"
+      ],
+      "runtime_confirmed": "pending-W7"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "data-analyst",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "Data Analysis Agent — M0 component freeze and domain-layer skeleton",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint packages apps tools --no-error-on-unmatched-pattern",
+    "doctor": "node apps/cli/dist/index.js doctor --config config/dev.example.yaml",
+    "version": "node apps/cli/dist/index.js version --json",
+    "freeze": "tsx tools/freeze-components.ts",
+    "verify": "tsx tools/verify-contracts.ts",
+    "config:validate": "node apps/cli/dist/index.js config validate --config config/dev.example.yaml"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.0",
+    "@typescript-eslint/parser": "^8.46.0",
+    "commander": "^15.0.0",
+    "eslint": "^9.30.0",
+    "js-yaml": "^4.1.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^3.0.0",
+    "zod": "^4.4.3"
+  }
+}

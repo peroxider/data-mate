@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "analyst-runtime"
+version = "0.1.0.dev0"
+description = "Data Analysis Agent M0 —— Python 运行时环境自检(只读探测,绝不安装依赖)"
+requires-python = ">=3.10"
+# 故意不声明运行时依赖:本包只探测 ipykernel/jupyter_client/nbformat/
+# pandas/numpy 的可导入性,依赖安装属环境准备,不是产品行为(§7)。
+dependencies = []
+
+[project.scripts]
+analyst-runtime-doctor = "analyst_runtime.doctor:main"
+
+[tool.setuptools.packages.find]
+include = ["analyst_runtime*"]

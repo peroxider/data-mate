@@ -1,0 +1,19 @@
+{
+  "name": "@data-analyst/cli",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "data-analyst": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean"
+  },
+  "dependencies": {
+    "@data-analyst/contracts": "workspace:*",
+    "@data-analyst/core": "workspace:*",
+    "@data-analyst/dsh-integration": "workspace:*",
+    "commander": "^15.0.0"
+  }
+}
