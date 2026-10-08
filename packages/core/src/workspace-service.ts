@@ -353,7 +353,8 @@ export class WorkspaceService {
       schema_ref: `${datasetId}/versions/${versionId}/schema.json`,
       completeness: input.truncated ? 'truncated' : 'complete',
       scope: {
-        source_ref: `datasource:${input.source_id}`,
+        // §8 scope.source_ref 为数据源 UUID;绑定信息记录在版本 manifest.source
+        source_ref: input.source_id,
         filter_description: input.sql,
         sample_method: null,
         sample_seed: null,

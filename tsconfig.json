@@ -5,6 +5,7 @@
     { "path": "packages/core" },
     { "path": "packages/dsh-integration" },
     { "path": "packages/notebook-adapter" },
+    { "path": "packages/data-adapters" },
     { "path": "apps/cli" }
   ]
 }

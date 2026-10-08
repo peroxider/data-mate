@@ -56,9 +56,15 @@ importers:
       '@data-analyst/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@data-analyst/data-adapters':
+        specifier: workspace:*
+        version: link:../../packages/data-adapters
       '@data-analyst/dsh-integration':
         specifier: workspace:*
         version: link:../../packages/dsh-integration
+      '@data-analyst/notebook-adapter':
+        specifier: workspace:*
+        version: link:../../packages/notebook-adapter
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -80,6 +86,15 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.6.5
+
+  packages/data-adapters:
+    dependencies:
+      '@data-analyst/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@data-analyst/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/dsh-integration:
     dependencies:

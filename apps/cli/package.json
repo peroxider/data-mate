@@ -13,7 +13,9 @@
   "dependencies": {
     "@data-analyst/contracts": "workspace:*",
     "@data-analyst/core": "workspace:*",
+    "@data-analyst/data-adapters": "workspace:*",
     "@data-analyst/dsh-integration": "workspace:*",
+    "@data-analyst/notebook-adapter": "workspace:*",
     "commander": "^15.0.0"
   }
 }
