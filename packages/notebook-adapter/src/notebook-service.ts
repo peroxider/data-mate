@@ -282,7 +282,7 @@ export class NotebookService {
     const epoch = 0; // 本地适配:每次执行即新内核,epoch 恒 0
     const executionRecord = {
       id: executionId,
-      run_id: null,
+      run_id: input.run_id,
       cell_id: cell.id,
       source_revision: cell.metadata.analyst_revision ?? 0,
       source_hash: sourceHash,

@@ -87,6 +87,7 @@ async function seedWorkspace(workspaceId: string): Promise<void> {
 const cellRun = (notebookId: string, cellId: string, timeoutSeconds: number): CellExecution => ({
   notebook_id: notebookId,
   cell_id: cellId,
+  run_id: null,
   expected_revision: null,
   timeout_seconds: timeoutSeconds,
   allow_stdin: false,
