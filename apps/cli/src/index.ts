@@ -7,6 +7,7 @@ import { registerComponentsCommand } from './commands/components.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerM1Commands } from './commands/m1.js';
+import { registerM2Commands } from './commands/m2.js';
 
 // ---------------------------------------------------------------------------
 // W5 — CLI。M0 提供环境自检、离线版本摘要、配置校验与受控 DSH 启动桩;
@@ -23,6 +24,7 @@ registerComponentsCommand(program);
 registerConfigCommand(program);
 registerServeCommand(program);
 registerM1Commands(program);
+registerM2Commands(program);
 
 program.parseAsync(process.argv).catch((error: unknown) => {
   if (error instanceof AnalystError) {
