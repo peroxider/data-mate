@@ -144,6 +144,42 @@ describe('WorkspaceService', () => {
     expect(originals).toEqual([`${dataRef.sha256}.csv`]);
   });
 
+  it('同名导入追加为同一 Dataset 的新版本(§24 结果版本化)', async () => {
+    const { service, root } = await makeService();
+    const workspace = await service.createWorkspace('版本化');
+    const source1 = join(root, 'sales-v1.csv');
+    await writeFile(source1, SALES_CSV, 'utf8');
+    const staged1 = await service.stageUpload(source1);
+    const first = await service.importFile({
+      workspace_id: workspace.id,
+      dataset_name: '渠道销售',
+      format: 'csv',
+      staged_path: staged1,
+    });
+    const source2 = join(root, 'sales-v2.csv');
+    await writeFile(source2, `${SALES_CSV}线上,10,20\r\n`, 'utf8');
+    const staged2 = await service.stageUpload(source2);
+    const second = await service.importFile({
+      workspace_id: workspace.id,
+      dataset_name: '渠道销售',
+      format: 'csv',
+      staged_path: staged2,
+    });
+    // 同一 Dataset,新版本,parent 指向 v1
+    expect(second.dataset.id).toBe(first.dataset.id);
+    expect(second.version.id).not.toBe(first.version.id);
+    expect(second.version.parents).toEqual([first.version.id]);
+    expect(second.dataRef.ref_id).not.toBe(first.dataRef.ref_id);
+    expect(second.dataRef.row_count).toBe(first.dataRef.row_count! + 1);
+    // 列表与 latestDataRef 都指向新版本
+    const versions = await service.listVersions(first.dataset.id);
+    expect(versions).toHaveLength(2);
+    const latest = await service.latestDataRef(workspace.id, '渠道销售');
+    expect(latest.ref_id).toBe(second.dataRef.ref_id);
+    const datasets = await service.listDatasets(workspace.id);
+    expect(datasets).toHaveLength(1);
+  });
+
   it('内容与声明格式不一致时拒绝导入', async () => {
     const { service, root } = await makeService();
     const workspace = await service.createWorkspace('格式校验');

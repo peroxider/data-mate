@@ -176,8 +176,14 @@ export class WorkspaceService {
       manifest = await this.#buildCsvManifest(input.format, staged, sha256, sizeBytes);
     }
 
-    // 登记 Dataset 与 v1 版本;原文件按 sha256 寻址不可变保留
-    const datasetId = newId();
+    // §24 结果版本化:同名导入追加为同一 Dataset 的新版本(可追溯 parents),
+    // 不再另立兄弟 Dataset;首次导入才创建 Dataset
+    const existingDatasets = await this.listDatasets(workspace.id);
+    const existing = existingDatasets.find((item) => item.name === input.dataset_name);
+    const latestVersion = existing
+      ? (await this.listVersions(existing.id)).at(-1) ?? null
+      : null;
+    const datasetId = existing ? existing.id : newId();
     const versionId = newId();
     const workspaceRootDir = join(this.#paths.workspacesDir, workspace.id);
     const originalDir = join(workspaceRootDir, 'datasets', datasetId, 'original');
@@ -201,7 +207,7 @@ export class WorkspaceService {
       workspace_id: workspace.id,
       name: input.dataset_name,
       source_kind: 'file_upload',
-      created_at: nowIso(),
+      created_at: existing ? existing.created_at : nowIso(),
     });
     const dataRef: DataRef = {
       ref_id: newId(),
@@ -227,7 +233,7 @@ export class WorkspaceService {
     const version: DatasetVersion = DatasetVersionSchema.parse({
       id: versionId,
       dataset_id: datasetId,
-      parents: [],
+      parents: latestVersion ? [latestVersion.id] : [],
       data_ref_id: dataRef.ref_id,
       operation: 'import',
       scope: `format=${manifest.format}; original=${manifest.original_name}`,
