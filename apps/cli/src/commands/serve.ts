@@ -1,12 +1,16 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import {
+  AggregationService,
   ApiServer,
   InMemoryRepository,
   ModelProfileService,
   RunGovernor,
+  WorkspaceService,
+  createDefaultToolRegistry,
   loadProductConfig,
   resolveConfigDir,
   resolvePaths,
@@ -68,6 +72,31 @@ export function registerServeCommand(program: Command): void {
           await repository.snapshotTo(paths.productStateFile);
         };
         const token = await loadOrCreateToken(paths.credentialsDir);
+
+        // §17 Agent 工具接入:领域服务 + 工具注册表,启用多轮 Agent 回路
+        const configDir = resolveConfigDir(options.config);
+        const repoRoot = resolve(configDir, '..');
+        const pythonBin = config.runtime.python === 'auto' ? 'python3' : config.runtime.python;
+        const runtimeDirEnv = process.env.DATA_ANALYST_RUNTIME_DIR;
+        const runtimeDirCandidate = runtimeDirEnv ?? join(repoRoot, 'python', 'analyst_runtime');
+        const runtimeDir = existsSync(runtimeDirCandidate) ? runtimeDirCandidate : null;
+        const workspace = new WorkspaceService({
+          repository,
+          paths,
+          pythonBin,
+          runtimeDir,
+          limits: {
+            maxUploadBytes: config.data.max_upload_mib * 1024 * 1024,
+            maxRows: config.data.quality_ts_max_rows,
+          },
+        });
+        const aggregation = new AggregationService({
+          repository,
+          paths,
+          maxBytes: config.data.quality_ts_max_mib * 1024 * 1024,
+          maxRows: config.data.quality_ts_max_rows,
+        });
+
         const api = new ApiServer({
           config,
           repository,
@@ -76,6 +105,20 @@ export function registerServeCommand(program: Command): void {
           token,
           artifactsRoot: paths.workspacesDir,
           onStateChange: persist,
+          toolRegistry: createDefaultToolRegistry(),
+          toolServices: {
+            workspace,
+            aggregation,
+            workspacesDir: paths.workspacesDir,
+            limits: {
+              max_bytes: config.data.max_upload_mib * 1024 * 1024,
+              max_rows: config.data.quality_ts_max_rows,
+              preview_rows: config.data.preview_rows,
+              model_sample_rows: config.data.model_sample_rows,
+              model_sample_cell_chars: config.data.model_sample_cell_chars,
+            },
+          },
+          agentLimits: { max_turns: config.runtime.agent_max_turns },
         });
         await api.start();
         const addr = api.address;

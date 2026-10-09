@@ -3,6 +3,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isAbsolute, join, resolve, sep } from 'node:path';
+import { z } from 'zod';
 import {
   AnalystError,
   RunSubmissionSchema,
@@ -13,6 +14,8 @@ import {
 import type {
   AnalysisRun,
   Artifact,
+  ChatMessage,
+  ChatToolCall,
   ModelProbeResult,
   ModelProfile,
   RunStreamEvent,
@@ -22,6 +25,10 @@ import type {
 import type { RepositoryPort } from './repository.js';
 import type { RunGovernor } from './run-governance.js';
 import type { ModelProfileService } from './model-profiles.js';
+import type { AgentToolLimits, ToolContext, ToolRegistry } from './agent-tools.js';
+import { createToolContext } from './agent-tools.js';
+import type { WorkspaceService } from './workspace-service.js';
+import type { AggregationService } from './aggregate.js';
 import { requiredCapabilitiesPassed, probeModelProfile } from './model-probe.js';
 import { OpenAiChatClient } from './model-client.js';
 
@@ -51,6 +58,17 @@ export interface ApiServerOptions {
   client?: OpenAiChatClient;
   /** 状态变更回调(如 model profile 保存后落盘快照) */
   onStateChange?: () => Promise<void>;
+  /** §17 Agent 工具接入:提供后启用多轮 Agent 回路;缺省保持单轮流式路径 */
+  toolRegistry?: ToolRegistry;
+  /** 工具运行所需领域服务;toolRegistry 存在时必须提供 */
+  toolServices?: {
+    workspace: WorkspaceService;
+    aggregation: AggregationService;
+    workspacesDir: string;
+    limits: AgentToolLimits;
+  };
+  /** §13 轮次上限;缺省 12 */
+  agentLimits?: { max_turns: number };
 }
 
 interface RunChannel {
@@ -82,10 +100,24 @@ export class ApiServer {
   readonly #channels = new Map<string, RunChannel>();
   readonly #latestProbes = new Map<string, ModelProbeResult>();
   readonly #client: OpenAiChatClient;
+  /** 排队 Run 的待执行负载(内存;重启对账本就把 queued 落 cancelled,无持久化缺口) */
+  readonly #pendingSubmissions = new Map<
+    string,
+    { submission: { message: string }; tools: string[] | null }
+  >();
 
   constructor(options: ApiServerOptions) {
     this.#options = options;
     this.#client = options.client ?? new OpenAiChatClient();
+    if (options.toolRegistry) {
+      // 排队 Run 唤醒:RunGovernor 的 #dequeueNext 是唯一 queued→running 翻转点
+      options.runGovernor.setRunStartedListener((started) => {
+        const pending = this.#pendingSubmissions.get(started.id);
+        if (!pending) return;
+        this.#pendingSubmissions.delete(started.id);
+        void this.#executeRun(started, pending.submission, pending.tools).catch(() => undefined);
+      });
+    }
     this.#server = createServer((req, res) => {
       void this.#dispatch(req, res);
     });
@@ -317,6 +349,23 @@ export class ApiServer {
       }
     }
 
+    // 工具选择校验(options.tools:数组子集或 [] 关闭;缺省 = 全量启用)
+    let selectedTools: string[] | null = null;
+    const registry = this.#options.toolRegistry;
+    if (registry) {
+      const optionShape = z.object({ tools: z.array(z.string()).optional() });
+      const parsedOptions = optionShape.parse(submission.options);
+      if (parsedOptions.tools) {
+        const known = new Set(registry.list().map((tool) => tool.name));
+        for (const name of parsedOptions.tools) {
+          if (!known.has(name)) {
+            throw err('UNPROCESSABLE', `未知工具: ${name}`, { tool: name });
+          }
+        }
+        selectedTools = parsedOptions.tools;
+      }
+    }
+
     // 模型配置绑定与 revision 冲突控制
     if (submission.model_profile_id !== null) {
       const profile = await this.#requireProfile(submission.model_profile_id);
@@ -334,6 +383,16 @@ export class ApiServer {
       if (!gate.ok) {
         // 不创建表面 running 但永远无法工作的 Run(§17)
         throw err('UNPROCESSABLE', gate.reason ?? '模型必需能力未通过检查', {
+          profile_id: profile.id,
+        });
+      }
+      // 工具能力门:启用工具集非空且 profile tool_calling=disabled → 提交时拒绝
+      if (
+        registry &&
+        profile.capabilities.tool_calling === 'disabled' &&
+        (selectedTools ?? registry.list().map((tool) => tool.name)).length > 0
+      ) {
+        throw err('UNPROCESSABLE', '模型配置 tool_calling 为 disabled,无法启用工具', {
           profile_id: profile.id,
         });
       }
@@ -374,17 +433,33 @@ export class ApiServer {
       config_revision: run.config_revision,
     });
 
+    if (registry) {
+      this.#pendingSubmissions.set(run.id, { submission, tools: selectedTools });
+    }
     if (!outcome.queued) {
-      void this.#executeRun(run, submission).catch(() => undefined);
+      void this.#executeRun(run, submission, selectedTools).catch(() => undefined);
     }
     return { run, replayed: false };
   }
 
+  /** 执行路径分发:有工具注册表 → 多轮 Agent 回路;否则保持 M5 单轮流式路径。 */
+  async #executeRun(
+    run: AnalysisRun,
+    submission: { message: string },
+    tools: string[] | null = null,
+  ): Promise<void> {
+    if (this.#options.toolRegistry && this.#options.toolServices) {
+      await this.#executeAgentRun(run, submission, tools);
+      return;
+    }
+    await this.#executeSingleTurn(run, submission);
+  }
+
   /**
-   * M5 最小执行回路:经 ModelInvocationPort 执行单次模型轮次,
+   * M5 单轮执行回路:经 ModelInvocationPort 执行单次模型轮次,
    * 流式增量以 cell.output 事件发布。完整 Agent Turn 由 DSH 承接(§10)。
    */
-  async #executeRun(run: AnalysisRun, submission: { message: string }): Promise<void> {
+  async #executeSingleTurn(run: AnalysisRun, submission: { message: string }): Promise<void> {
     try {
       if (run.model_profile_snapshot_id === null) {
         throw err('UNPROCESSABLE', 'Run 未绑定模型配置');
@@ -441,7 +516,212 @@ export class ApiServer {
     } catch {
       this.#emitStreamEvent(run.session_id, run.id, 'run.completed', { status: 'failed' });
       await this.#options.runGovernor.finishRun(run.id, 'failed').catch(() => undefined);
+    } finally {
+      this.#pendingSubmissions.delete(run.id);
     }
+  }
+
+  /**
+   * §17 多轮 Agent 回路:每轮携带工具描述符流式调用模型;
+   * 流结束有 tool_calls → 逐个执行(先登记 ExecutionRecord 再产生副作用),
+   * 工具结果以 tool-role 消息进入下一轮;无 tool_calls → run.completed。
+   * 产品事件流不复制第二条 token 流:文本增量沿用 cell.output。
+   */
+  async #executeAgentRun(
+    run: AnalysisRun,
+    submission: { message: string },
+    tools: string[] | null,
+  ): Promise<void> {
+    const registry = this.#options.toolRegistry as ToolRegistry;
+    const services = this.#options.toolServices!;
+    try {
+      if (run.model_profile_snapshot_id === null) {
+        throw err('UNPROCESSABLE', 'Run 未绑定模型配置');
+      }
+      const snapshot = await this.#options.repository.modelProfiles.get(
+        run.model_profile_snapshot_id,
+      );
+      if (!snapshot) throw err('NOT_FOUND', '模型配置快照不存在');
+      const session = await this.#options.repository.sessions.get(run.session_id);
+      if (!session) throw err('NOT_FOUND', `Session 不存在: ${run.session_id}`);
+      const credential = await this.#options.modelProfiles.resolveCredential(snapshot);
+
+      const abort = new AbortController();
+      this.#options.runGovernor.registerCancelHandler(run.id, async () => {
+        abort.abort();
+        return true;
+      });
+
+      const ctx: ToolContext = createToolContext({
+        run,
+        workspaceId: session.workspace_id,
+        repository: this.#options.repository,
+        runGovernor: this.#options.runGovernor,
+        workspace: services.workspace,
+        aggregation: services.aggregation,
+        workspacesDir: services.workspacesDir,
+        limits: services.limits,
+        emit: (type, payload) => this.#emitStreamEvent(run.session_id, run.id, type, payload),
+        signal: abort.signal,
+      });
+
+      const selected = new Set(tools ?? registry.list().map((tool) => tool.name));
+      const descriptors = registry
+        .list()
+        .filter((tool) => selected.has(tool.name))
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        }));
+
+      const maxTurns = this.#options.agentLimits?.max_turns ?? 12;
+      const history: ChatMessage[] = [
+        { role: 'user', content: submission.message, tool_call_id: null, tool_calls: null },
+      ];
+      let outputChars = 0;
+      let terminal: 'completed' | 'failed' = 'completed';
+      let interrupted = false;
+      let turn = 0;
+
+      while (!interrupted) {
+        if (turn >= maxTurns) {
+          await this.#options.runGovernor.appendEvent({
+            run_id: run.id,
+            session_id: run.session_id,
+            event: 'agent.max_turns_reached',
+            message: `达到轮次上限 ${maxTurns},Run 标记 failed;已产文本与产物保留`,
+            level: 'warn',
+          });
+          terminal = 'failed';
+          break;
+        }
+        turn += 1;
+        const current = await this.#options.runGovernor.getRun(run.id);
+        if (current.status !== 'running') {
+          interrupted = true;
+          break;
+        }
+
+        const request = {
+          base_url: snapshot.base_url,
+          model: snapshot.model,
+          messages: history,
+          tools: descriptors.length > 0 ? descriptors : null,
+          temperature: snapshot.temperature ?? 0,
+          max_output_tokens: snapshot.max_output_tokens ?? 8192,
+          extra_body: snapshot.extra_body ?? {},
+          connect_timeout_ms: snapshot.connect_timeout_ms ?? 10_000,
+          response_timeout_ms: snapshot.response_timeout_ms ?? 120_000,
+          stream_idle_timeout_ms: snapshot.stream_idle_timeout_ms ?? 60_000,
+        };
+
+        const toolCalls: ChatToolCall[] = [];
+        let turnText = '';
+        for await (const event of this.#client.stream(request, credential, {
+          signal: abort.signal,
+        })) {
+          if (event.type === 'text_delta') {
+            turnText += event.text;
+            outputChars += event.text.length;
+            this.#emitStreamEvent(run.session_id, run.id, 'cell.output', { text: event.text });
+          } else if (event.type === 'tool_call') {
+            toolCalls.push(event.call);
+          } else if (event.type === 'interrupted') {
+            interrupted = true;
+            break;
+          } else if (event.type === 'done') {
+            break;
+          }
+        }
+
+        history.push({
+          role: 'assistant',
+          content: turnText.length > 0 ? turnText : null,
+          tool_call_id: null,
+          tool_calls: toolCalls.length > 0 ? toolCalls : null,
+        });
+        if (interrupted) break;
+        if (toolCalls.length === 0) break; // 纯文本回答 → 正常完成
+
+        for (const call of toolCalls) {
+          const content = await this.#executeToolCall(ctx, registry, call);
+          history.push({ role: 'tool', content, tool_call_id: call.call_id, tool_calls: null });
+        }
+      }
+
+      const finalRun = await this.#options.runGovernor.getRun(run.id);
+      const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+      if (TERMINAL.has(finalRun.status)) {
+        // 取消等路径已由 RunGovernor 落终态;补发事件即可,不重复迁移
+        this.#emitStreamEvent(run.session_id, run.id, 'run.completed', {
+          status: finalRun.status,
+          output_chars: outputChars,
+        });
+        return;
+      }
+      const status = interrupted ? 'interrupted' : terminal;
+      this.#emitStreamEvent(run.session_id, run.id, 'run.completed', {
+        status,
+        output_chars: outputChars,
+      });
+      await this.#options.runGovernor.finishRun(run.id, status);
+    } catch {
+      this.#emitStreamEvent(run.session_id, run.id, 'run.completed', { status: 'failed' });
+      await this.#options.runGovernor.finishRun(run.id, 'failed').catch(() => undefined);
+    } finally {
+      this.#options.runGovernor.unregisterCancelHandler(run.id);
+      this.#pendingSubmissions.delete(run.id);
+    }
+  }
+
+  /** 执行单个工具调用:登记 ExecutionRecord → tool.started → phase → execute → tool.completed。 */
+  async #executeToolCall(
+    ctx: ToolContext,
+    registry: ToolRegistry,
+    call: ChatToolCall,
+  ): Promise<string> {
+    const tool = registry.get(call.name);
+    if (!tool) {
+      return JSON.stringify({ error: `未知工具: ${call.name}`, code: 'UNPROCESSABLE' });
+    }
+    const execution = await ctx.beginExecution(call.name, call.arguments_json);
+    this.#emitStreamEvent(ctx.session_id, ctx.run.id, 'tool.started', {
+      tool: call.name,
+      call_id: call.call_id,
+      execution_id: execution.executionId,
+    });
+    await ctx.setPhase(tool.phase);
+    let content: string;
+    let status: 'completed' | 'failed' = 'completed';
+    try {
+      let input: unknown = {};
+      if (call.arguments_json.trim() !== '') {
+        input = JSON.parse(call.arguments_json) as unknown;
+      }
+      const result = await tool.execute(input, ctx);
+      await ctx.endExecution(execution.executionId, 'completed');
+      content = JSON.stringify({
+        summary: result.summary,
+        references: result.references,
+        next_capabilities: result.next_capabilities,
+      });
+    } catch (cause) {
+      await ctx.endExecution(execution.executionId, 'failed').catch(() => undefined);
+      status = 'failed';
+      // 错误不携带数据样本;tool-role 错误消息让模型自恢复(§13)
+      content =
+        cause instanceof AnalystError
+          ? JSON.stringify({ error: cause.message, code: cause.payload.code })
+          : JSON.stringify({ error: '工具执行失败', code: 'INTERNAL' });
+    }
+    this.#emitStreamEvent(ctx.session_id, ctx.run.id, 'tool.completed', {
+      tool: call.name,
+      call_id: call.call_id,
+      execution_id: execution.executionId,
+      status,
+    });
+    return content;
   }
 
   // ------------------------------ 事件流 -------------------------------------
