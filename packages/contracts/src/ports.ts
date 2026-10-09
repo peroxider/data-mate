@@ -17,6 +17,8 @@ export const ImportRequestSchema = z.object({
   format: z.enum(['csv', 'tsv', 'xlsx', 'jsonl', 'parquet']),
   /** 服务端受控目录内的路径;不接受调用方拼接的任意绝对路径 */
   staged_path: z.string().min(1),
+  /** XLSX 多工作表时由用户指定的分析对象(§496);其余格式必须缺省 */
+  sheet: z.string().min(1).max(200).optional(),
 });
 export type ImportRequest = z.infer<typeof ImportRequestSchema>;
 

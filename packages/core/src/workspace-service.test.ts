@@ -1,13 +1,20 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ProductConfig } from '@data-analyst/contracts';
 import { InMemoryRepository, resolvePaths, WorkspaceService } from './index.js';
 
+const here = dirname(fileURLToPath(import.meta.url));
+// 仓库内 analyst_runtime 包目录(PYTHONPATH),供 XLSX 检查子命令使用
+const repoRuntimeDir = resolve(join(here, '..', '..', '..', 'python', 'analyst_runtime'));
+const openpyxlAvailable = spawnSync('python3', ['-c', 'import openpyxl']).status === 0;
+
 const dirs: string[] = [];
 
-async function makeService(): Promise<{
+async function makeService(runtimeDir: string | null = null): Promise<{
   service: WorkspaceService;
   root: string;
   repository: InMemoryRepository;
@@ -62,7 +69,7 @@ async function makeService(): Promise<{
     repository,
     paths,
     pythonBin: 'python3',
-    runtimeDir: null,
+    runtimeDir,
     limits: { maxUploadBytes: 16 * 1024 * 1024, maxRows: 100_000 },
   });
   return { service, root, repository };
@@ -291,5 +298,216 @@ describe('WorkspaceService', () => {
     const refs = await restored.dataRefs.list();
     expect(refs).toHaveLength(1);
     expect(refs[0]?.row_count).toBe(4);
+  });
+
+  it('JSONL 导入:可表格化约束、点路径扁平化与受控 CSV 快照(§496/§502)', async () => {
+    const { service, root } = await makeService();
+    const workspace = await service.createWorkspace('事件流');
+    const source = join(root, 'events.jsonl');
+    await writeFile(
+      source,
+      ['{"event":"login","user":{"id":1,"region":"east"}}', '{"event":"pay","user":{"id":2,"region":"west"},"amount":9.5}', ''].join(
+        '\n',
+      ),
+      'utf8',
+    );
+    const staged = await service.stageUpload(source);
+    const { dataset, version, dataRef } = await service.importFile({
+      workspace_id: workspace.id,
+      dataset_name: '事件',
+      format: 'jsonl',
+      staged_path: staged,
+    });
+    expect(dataRef.format).toBe('jsonl');
+    expect(dataRef.row_count).toBe(2);
+    expect(dataRef.completeness).toBe('complete');
+
+    const versionDir = join(
+      root,
+      'data',
+      'workspaces',
+      workspace.id,
+      'datasets',
+      dataset.id,
+      'versions',
+      version.id,
+    );
+    const manifest = JSON.parse(await readFile(join(versionDir, 'manifest.json'), 'utf8')) as {
+      format: string;
+      data_file: string;
+      jsonl_expansion: string;
+      original_sha256: string;
+      sha256: string;
+      row_count: number;
+    };
+    expect(manifest.format).toBe('jsonl');
+    expect(manifest.jsonl_expansion).toBe('dotted_path'); // user.id/user.region 扁平化
+    expect(manifest.row_count).toBe(2);
+    expect(manifest.original_sha256).not.toBe(manifest.sha256); // 原件溯源 vs 快照
+
+    const snapshot = await readFile(join(versionDir, manifest.data_file), 'utf8');
+    const lines = snapshot.split('\n');
+    expect(lines[0]).toBe('event,user.id,user.region,amount');
+    expect(lines[1]).toBe('login,1,east,');
+    expect(lines[2]).toBe('pay,2,west,9.5');
+
+    // 原件按哈希保留于 original/,数据文件哈希与 DataRef 一致(resolveData 复核有效)
+    const { readdir } = await import('node:fs/promises');
+    const originals = await readdir(
+      join(root, 'data', 'workspaces', workspace.id, 'datasets', dataset.id, 'original'),
+    );
+    expect(originals).toEqual([`${manifest.original_sha256}.jsonl`]);
+    const resolved = await service.resolveData(dataRef.ref_id, {
+      workspace_id: workspace.id,
+      max_bytes: 1 << 20,
+      max_rows: 1000,
+    });
+    expect(resolved.within_limits).toBe(true);
+  });
+
+  it('JSONL 含非对象行时如实拒绝(可表格化约束)', async () => {
+    const { service } = await makeService();
+    const workspace = await service.createWorkspace('约束校验');
+    const source = join(dirs[0]!, 'bad.jsonl');
+    await writeFile(source, '{"a":1}\n42\n', 'utf8');
+    const staged = await service.stageUpload(source);
+    await expect(
+      service.importFile({
+        workspace_id: workspace.id,
+        dataset_name: '坏行',
+        format: 'jsonl',
+        staged_path: staged,
+      }),
+    ).rejects.toMatchObject({ payload: { code: 'UNPROCESSABLE' } });
+  });
+
+  it('XLSX 伪装文件被签名校验拒绝', async () => {
+    const { service } = await makeService();
+    const workspace = await service.createWorkspace('签名校验');
+    const source = join(dirs[0]!, 'fake.xlsx');
+    await writeFile(source, SALES_CSV, 'utf8'); // CSV 内容伪装成 XLSX
+    const staged = await service.stageUpload(source);
+    await expect(
+      service.importFile({
+        workspace_id: workspace.id,
+        dataset_name: '伪格式',
+        format: 'xlsx',
+        staged_path: staged,
+      }),
+    ).rejects.toMatchObject({ payload: { code: 'UNPROCESSABLE' } });
+  });
+});
+
+function makeXlsxFixture(path: string): void {
+  const script = [
+    'import openpyxl',
+    'wb = openpyxl.Workbook()',
+    'ws = wb.active',
+    "ws.title = 'East'",
+    "ws.append(['region', 'amount'])",
+    "ws.append(['a', 100])",
+    "ws.append(['b', 200.5])",
+    "ws2 = wb.create_sheet('West')",
+    "ws2.append(['region', 'amount', 'note'])",
+    "ws2.append(['c', 50, 'cached'])",
+    "ws2['D1'] = 'derived'",
+    "ws2['D2'] = '=SUM(B2:B2)'", // 无缓存结果:§496 标记 unavailable
+    `wb.save(${JSON.stringify(path)})`,
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', script]);
+  if (result.status !== 0) throw new Error(`fixture 生成失败: ${String(result.stderr)}`);
+}
+
+describe.skipIf(!openpyxlAvailable)('WorkspaceService XLSX 导入(需 openpyxl)', () => {
+  it('多工作表未指定 sheet 时要求用户指定(§496)', { timeout: 30_000 }, async () => {
+    const { service } = await makeService(repoRuntimeDir);
+    const workspace = await service.createWorkspace('多表');
+    const source = join(dirs[0]!, 'book.xlsx');
+    makeXlsxFixture(source);
+    const staged = await service.stageUpload(source);
+    await expect(
+      service.importFile({
+        workspace_id: workspace.id,
+        dataset_name: '多表数据',
+        format: 'xlsx',
+        staged_path: staged,
+      }),
+    ).rejects.toMatchObject({ payload: { code: 'UNPROCESSABLE' } });
+  });
+
+  it('指定 sheet 后物化受控 CSV 快照,公式缺缓存值记 unavailable', { timeout: 30_000 }, async () => {
+    const { service, root } = await makeService(repoRuntimeDir);
+    const workspace = await service.createWorkspace('多表选择');
+    const source = join(dirs[0]!, 'book2.xlsx');
+    makeXlsxFixture(source);
+    const staged = await service.stageUpload(source);
+    const { dataset, version, dataRef } = await service.importFile({
+      workspace_id: workspace.id,
+      dataset_name: '西区',
+      format: 'xlsx',
+      staged_path: staged,
+      sheet: 'West',
+    });
+    expect(dataRef.format).toBe('xlsx');
+    expect(dataRef.row_count).toBe(1);
+
+    const versionDir = join(
+      root,
+      'data',
+      'workspaces',
+      workspace.id,
+      'datasets',
+      dataset.id,
+      'versions',
+      version.id,
+    );
+    const manifest = JSON.parse(await readFile(join(versionDir, 'manifest.json'), 'utf8')) as {
+      format: string;
+      data_file: string;
+      selected_sheet: string;
+      formula_unavailable: number;
+      sheets: Array<{ name: string }>;
+      sha256: string;
+    };
+    expect(manifest.selected_sheet).toBe('West');
+    expect(manifest.sheets.map((item) => item.name)).toEqual(['East', 'West']);
+    expect(manifest.formula_unavailable).toBe(1); // =SUM(B2:B2) 无缓存结果
+    expect(manifest.data_file.endsWith('.csv')).toBe(true);
+
+    const snapshot = await readFile(join(versionDir, manifest.data_file), 'utf8');
+    expect(snapshot).toBe('region,amount,note,derived\nc,50,cached,\n');
+
+    const resolved = await service.resolveData(dataRef.ref_id, {
+      workspace_id: workspace.id,
+      max_bytes: 1 << 20,
+      max_rows: 1000,
+    });
+    expect(resolved.within_limits).toBe(true);
+    expect(resolved.absolute_path.endsWith('.csv')).toBe(true);
+  });
+
+  it('单一工作表自动选定', { timeout: 30_000 }, async () => {
+    const { service } = await makeService(repoRuntimeDir);
+    const workspace = await service.createWorkspace('单表');
+    const source = join(dirs[0]!, 'single.xlsx');
+    const script = [
+      'import openpyxl',
+      'wb = openpyxl.Workbook()',
+      "wb.active.title = 'Only'",
+      "wb.active.append(['x', 'y'])",
+      "wb.active.append([1, 2])",
+      `wb.save(${JSON.stringify(source)})`,
+    ].join('\n');
+    const result = spawnSync('python3', ['-c', script]);
+    if (result.status !== 0) throw new Error(String(result.stderr));
+    const staged = await service.stageUpload(source);
+    const { dataRef } = await service.importFile({
+      workspace_id: workspace.id,
+      dataset_name: '单表数据',
+      format: 'xlsx',
+      staged_path: staged,
+    });
+    expect(dataRef.row_count).toBe(1);
+    expect(dataRef.format).toBe('xlsx');
   });
 });

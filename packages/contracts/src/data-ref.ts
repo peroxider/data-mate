@@ -10,7 +10,7 @@ export const DataRefSchema = z.object({
   workspace_id: UuidSchema,
   dataset_version_id: UuidSchema.nullable(),
   kind: z.enum(['table', 'metrics', 'figure_data']),
-  format: z.enum(['csv', 'tsv', 'json', 'jsonl', 'parquet']),
+  format: z.enum(['csv', 'tsv', 'json', 'jsonl', 'xlsx', 'parquet']),
   sha256: z.string().length(64),
   size_bytes: z.number().int().nonnegative(),
   row_count: z.number().int().nonnegative().nullable(), // 未知用 null,不用 0

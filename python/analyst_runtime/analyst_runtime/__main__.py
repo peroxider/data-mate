@@ -2,7 +2,7 @@
 
 import sys
 
-from . import doctor, inspect_parquet, run_cell, stats_compare, train_model
+from . import doctor, inspect_parquet, inspect_xlsx, run_cell, stats_compare, train_model
 
 
 def dispatch(argv: list[str]) -> int:
@@ -13,6 +13,8 @@ def dispatch(argv: list[str]) -> int:
         return doctor.main(argv)  # doctor 的 parser 自带 command 位置参数
     if command == "inspect-parquet":
         return inspect_parquet.main(rest)
+    if command == "inspect-xlsx":
+        return inspect_xlsx.main(rest)
     if command == "run-cell":
         return run_cell.main(rest)
     if command == "stats-compare":

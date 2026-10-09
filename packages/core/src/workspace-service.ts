@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFile, mkdir, open, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
@@ -24,6 +25,7 @@ import type { RepositoryPort } from './repository.js';
 import type { ResolvedPaths } from './paths.js';
 import { sha256File } from './hashing.js';
 import { scanCsvFile } from './csv-scan.js';
+import { scanJsonlFile } from './jsonl-scan.js';
 import { inferColumnProfiles, toCsv } from './csv-write.js';
 
 // ---------------------------------------------------------------------------
@@ -66,7 +68,8 @@ interface ManifestFile {
   schema_version: 1;
   dataset_id: string;
   version_id: string;
-  format: 'csv' | 'tsv' | 'parquet';
+  format: 'csv' | 'tsv' | 'parquet' | 'xlsx' | 'jsonl';
+  /** 数据文件(data_file)哈希;xlsx/jsonl 为受控 CSV 快照,原件溯源见 original_* 字段 */
   sha256: string;
   size_bytes: number;
   row_count: number | null;
@@ -80,6 +83,18 @@ interface ManifestFile {
   columns: Array<{ name: string; type: string; null_count: number | null }>;
   field_count_mismatch_rows?: number;
   imported_at: string;
+  /** xlsx/jsonl:上传原件溯源(数据文件为受控 CSV 快照,§502) */
+  original_sha256?: string;
+  original_size_bytes?: number;
+  /** xlsx:工作表清单与用户指定的分析对象(§496) */
+  sheets?: Array<{ name: string; rows: number; cols: number }>;
+  selected_sheet?: string;
+  /** xlsx:公式值缺少已缓存结果、快照中记为 unavailable(空值)的单元格数 */
+  formula_unavailable?: number;
+  /** xlsx/jsonl:快照转换说明 */
+  snapshot?: string;
+  /** jsonl:嵌套字段展开规则(§496) */
+  jsonl_expansion?: 'flat' | 'dotted_path';
 }
 
 type ErrorCode = AnalystError['payload']['code'];
@@ -170,8 +185,17 @@ export class WorkspaceService {
     version: DatasetVersion;
     dataRef: DataRef;
   }> {
-    if (input.format !== 'csv' && input.format !== 'tsv' && input.format !== 'parquet') {
-      throw error('UNPROCESSABLE', `M1 阶段支持的导入格式: csv, tsv, parquet(收到 ${input.format})`);
+    if (
+      input.format !== 'csv' &&
+      input.format !== 'tsv' &&
+      input.format !== 'parquet' &&
+      input.format !== 'xlsx' &&
+      input.format !== 'jsonl'
+    ) {
+      throw error('UNPROCESSABLE', `支持的导入格式: csv, tsv, parquet, xlsx, jsonl(收到 ${input.format})`);
+    }
+    if (input.sheet !== undefined && input.format !== 'xlsx') {
+      throw error('UNPROCESSABLE', '仅 XLSX 导入支持 sheet 工作表选择');
     }
     const staged = this.#assertStagedPath(input.staged_path);
     const workspace = await this.#repository.workspaces.get(input.workspace_id);
@@ -183,9 +207,18 @@ export class WorkspaceService {
     const sizeBytes = (await stat(staged)).size;
 
     let manifest: ManifestFile;
+    let snapshotCsv: string | null = null;
     if (input.format === 'parquet') {
       await this.#assertParquetSignature(staged);
       manifest = await this.#buildParquetManifest(staged, sha256, sizeBytes);
+    } else if (input.format === 'xlsx') {
+      const built = await this.#buildXlsxManifest(staged, input.sheet ?? null);
+      manifest = built.manifest;
+      snapshotCsv = built.snapshotCsv;
+    } else if (input.format === 'jsonl') {
+      const built = await this.#buildJsonlManifest(staged);
+      manifest = built.manifest;
+      snapshotCsv = built.snapshotCsv;
     } else {
       manifest = await this.#buildCsvManifest(input.format, staged, sha256, sizeBytes);
     }
@@ -207,7 +240,21 @@ export class WorkspaceService {
 
     const dataName = `${sha256}.${manifest.format}`;
     await copyFile(staged, join(originalDir, dataName));
-    manifest.data_file = relative(versionDir, join(originalDir, dataName));
+    if (snapshotCsv === null) {
+      // csv/tsv/parquet:数据文件即保留的原件
+      manifest.data_file = relative(versionDir, join(originalDir, dataName));
+    } else {
+      // xlsx/jsonl:原件按哈希保留,数据文件为受控 CSV 快照(§502);
+      // sha256/size_bytes 与 DataRef 一致地指向快照,保证 resolveData 复核有效
+      const snapshotSha = createHash('sha256').update(snapshotCsv, 'utf8').digest('hex');
+      const snapshotName = `${snapshotSha}.csv`;
+      await this.#writeFile(join(versionDir, snapshotName), snapshotCsv);
+      manifest.original_sha256 = sha256;
+      manifest.original_size_bytes = sizeBytes;
+      manifest.sha256 = snapshotSha;
+      manifest.size_bytes = Buffer.byteLength(snapshotCsv, 'utf8');
+      manifest.data_file = snapshotName;
+    }
     manifest.dataset_id = datasetId;
     manifest.version_id = versionId;
     manifest.imported_at = nowIso();
@@ -229,8 +276,9 @@ export class WorkspaceService {
       dataset_version_id: versionId,
       kind: 'table',
       format: manifest.format,
-      sha256,
-      size_bytes: sizeBytes,
+      // xlsx/jsonl:与数据文件(受控 CSV 快照)一致,resolveData 复核有效
+      sha256: manifest.sha256,
+      size_bytes: manifest.size_bytes,
       row_count: manifest.row_count,
       row_count_status: manifest.row_count_status === 'exact' ? 'exact' : 'unknown',
       schema_ref: `${datasetId}/versions/${versionId}/schema.json`,
@@ -253,7 +301,7 @@ export class WorkspaceService {
       scope: `format=${manifest.format}; original=${manifest.original_name}`,
       schema_json: schemaJson,
       manifest: manifest as unknown as Record<string, unknown>,
-      sha256,
+      sha256: manifest.sha256,
       created_at: nowIso(),
       state: 'ready',
     });
@@ -538,6 +586,195 @@ export class WorkspaceService {
       throw error('INTERNAL', 'Parquet 检查输出缺少必需字段');
     }
     return { row_count: report.row_count, columns: report.columns };
+  }
+
+  async #assertZipSignature(path: string): Promise<void> {
+    const handle = await open(path, 'r');
+    try {
+      const head = Buffer.alloc(4);
+      await handle.read(head, 0, 4, 0);
+      if (head.toString('latin1') !== 'PK\x03\x04') {
+        throw error('UNPROCESSABLE', '文件内容与声明的 XLSX 格式不一致', {
+          reason: 'DATA_FORMAT',
+        });
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /** 经 runtime.python 调用 analyst_runtime inspect-xlsx(只读,§788)。 */
+  async #runInspectXlsx(
+    path: string,
+    sheet: string | null,
+  ): Promise<{
+    sheets?: Array<{ name: string; rows: number; cols: number }>;
+    row_count?: number;
+    columns?: string[];
+    rows?: Array<Array<unknown>>;
+    formula_unavailable?: number;
+  }> {
+    const args = [
+      '-m',
+      'analyst_runtime',
+      'inspect-xlsx',
+      '--input',
+      path,
+      '--max-rows',
+      String(this.#limits.maxRows),
+    ];
+    if (sheet !== null) args.push('--sheet', sheet);
+    const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>(
+      (fulfil, reject) => {
+        const child = spawn(this.#pythonBin, args, {
+          env: this.#runtimeDir ? { ...process.env, PYTHONPATH: this.#runtimeDir } : process.env,
+          shell: false,
+        });
+        let stdout = '';
+        let stderr = '';
+        const timer = setTimeout(() => child.kill('SIGKILL'), 60_000);
+        child.stdout.on('data', (data: Buffer) => {
+          stdout += data.toString('utf8');
+        });
+        child.stderr.on('data', (data: Buffer) => {
+          stderr += data.toString('utf8');
+        });
+        child.once('error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+        child.once('exit', (code) => {
+          clearTimeout(timer);
+          fulfil({ code, stdout, stderr });
+        });
+      },
+    ).catch(() => {
+      throw error(
+        'ENVIRONMENT_INCOMPLETE',
+        `无法启动 Python 运行时 (${this.#pythonBin});XLSX 检查需要配置 runtime.python`,
+      );
+    });
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.stdout) as unknown;
+    } catch {
+      throw error('ENVIRONMENT_INCOMPLETE', 'analyst_runtime inspect-xlsx 输出不是合法 JSON', {
+        stderr: result.stderr.slice(0, 500),
+      });
+    }
+    const report = parsed as {
+      ok?: boolean;
+      error_kind?: string;
+      reason?: string;
+      sheets?: Array<{ name: string; rows: number; cols: number }>;
+      row_count?: number;
+      columns?: string[];
+      rows?: Array<Array<unknown>>;
+      formula_unavailable?: number;
+    };
+    if (!report.ok) {
+      if (report.error_kind === 'environment') {
+        throw error('ENVIRONMENT_INCOMPLETE', report.reason ?? 'XLSX 检查失败(环境准备项缺失)');
+      }
+      if (report.error_kind === 'row_limit') {
+        throw error('PAYLOAD_TOO_LARGE', report.reason ?? '数据行数超出导入上限', {
+          max_rows: this.#limits.maxRows,
+        });
+      }
+      throw error('UNPROCESSABLE', report.reason ?? 'XLSX 检查失败', {
+        reason: 'DATA_FORMAT',
+        sheets: report.sheets ?? null,
+      });
+    }
+    return report;
+  }
+
+  async #buildXlsxManifest(
+    staged: string,
+    sheet: string | null,
+  ): Promise<{ manifest: ManifestFile; snapshotCsv: string }> {
+    await this.#assertZipSignature(staged);
+    const listing = await this.#runInspectXlsx(staged, null);
+    const sheets = listing.sheets ?? [];
+    if (sheets.length === 0) {
+      throw error('UNPROCESSABLE', 'XLSX 不含任何工作表', { reason: 'DATA_FORMAT' });
+    }
+    // §496:多工作表由用户指定分析对象;单一工作表自动选定
+    const selected = sheet ?? (sheets.length === 1 ? sheets[0]!.name : null);
+    if (selected === null) {
+      throw error('UNPROCESSABLE', 'XLSX 含多个工作表,请指定 sheet 分析对象', {
+        sheets: sheets.map((item) => item.name),
+      });
+    }
+    if (!sheets.some((item) => item.name === selected)) {
+      throw error('UNPROCESSABLE', `工作表不存在: ${selected}`, {
+        reason: 'DATA_FORMAT',
+        sheets: sheets.map((item) => item.name),
+      });
+    }
+    const dump = await this.#runInspectXlsx(staged, selected);
+    const columns = dump.columns ?? [];
+    const rows = dump.rows ?? [];
+    if (columns.length === 0) {
+      throw error('UNPROCESSABLE', `工作表为空或缺少表头行: ${selected}`, {
+        reason: 'DATA_FORMAT',
+      });
+    }
+    return {
+      manifest: {
+        schema_version: 1,
+        dataset_id: '',
+        version_id: '',
+        format: 'xlsx',
+        sha256: '',
+        size_bytes: 0, // 快照哈希与大小在物化快照后回填
+        row_count: dump.row_count ?? rows.length,
+        row_count_status: 'exact',
+        encoding: null,
+        delimiter: ',',
+        has_header: true,
+        original_name: basename(staged),
+        data_file: '',
+        columns: inferColumnProfiles(columns, rows),
+        sheets,
+        selected_sheet: selected,
+        formula_unavailable: dump.formula_unavailable ?? 0,
+        snapshot: '选定工作表物化为受控 CSV 快照(§502);公式缺缓存值记为 unavailable',
+        imported_at: nowIso(),
+      },
+      snapshotCsv: toCsv(columns, rows),
+    };
+  }
+
+  async #buildJsonlManifest(staged: string): Promise<{ manifest: ManifestFile; snapshotCsv: string }> {
+    const scan = await scanJsonlFile(staged, {
+      maxBytes: this.#limits.maxUploadBytes,
+      maxRows: this.#limits.maxRows,
+    });
+    return {
+      manifest: {
+        schema_version: 1,
+        dataset_id: '',
+        version_id: '',
+        format: 'jsonl',
+        sha256: '',
+        size_bytes: 0, // 快照哈希与大小在物化快照后回填
+        row_count: scan.row_count,
+        row_count_status: 'exact',
+        encoding: 'utf-8',
+        delimiter: null,
+        has_header: true,
+        original_name: basename(staged),
+        data_file: '',
+        columns: inferColumnProfiles(scan.columns, scan.rows),
+        field_count_mismatch_rows: scan.field_count_mismatch_rows,
+        snapshot: '可表格化 JSONL 物化为受控 CSV 快照(§502)',
+        jsonl_expansion: scan.expansion,
+        imported_at: nowIso(),
+      },
+      snapshotCsv: toCsv(scan.columns, scan.rows),
+    };
   }
 
   // ------------------------------ DataRef 解析 -------------------------------

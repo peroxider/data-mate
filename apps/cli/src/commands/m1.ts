@@ -121,11 +121,13 @@ function parseSpec(groupBy: string, metrics: string[], ratios: string[]): Aggreg
   return { group_by: groupBy, metrics: parsedMetrics, ratios: parsedRatios };
 }
 
-function formatFromExtension(file: string): 'csv' | 'tsv' | 'parquet' | null {
+function formatFromExtension(file: string): 'csv' | 'tsv' | 'parquet' | 'xlsx' | 'jsonl' | null {
   const ext = extname(file).toLowerCase();
   if (ext === '.csv') return 'csv';
   if (ext === '.tsv') return 'tsv';
   if (ext === '.parquet') return 'parquet';
+  if (ext === '.xlsx') return 'xlsx';
+  if (ext === '.jsonl' || ext === '.ndjson') return 'jsonl';
   return null;
 }
 
@@ -157,25 +159,27 @@ export function registerM1Commands(program: Command): void {
 
   program
     .command('import')
-    .description('导入数据文件为受版本管理的数据集(支持 csv/tsv/parquet)')
+    .description('导入数据文件为受版本管理的数据集(支持 csv/tsv/parquet/xlsx/jsonl)')
     .requiredOption('--config <file>', '产品配置 YAML 路径')
     .requiredOption('--workspace <id>', 'Workspace UUID')
     .requiredOption('--file <path>', '待导入文件路径')
-    .option('--format <format>', 'csv | tsv | parquet(缺省按扩展名推断)')
+    .option('--format <format>', 'csv | tsv | parquet | xlsx | jsonl(缺省按扩展名推断)')
+    .option('--sheet <name>', 'XLSX 工作表名(多工作表时必填,§496)')
     .option('--name <name>', '数据集名称(缺省为文件名去扩展名)')
     .action(async (options: {
       config: string;
       workspace: string;
       file: string;
       format?: string;
+      sheet?: string;
       name?: string;
     }) => {
       const context = await buildContext(options.config);
       const format = options.format ?? formatFromExtension(options.file);
-      if (format !== 'csv' && format !== 'tsv' && format !== 'parquet') {
+      if (format !== 'csv' && format !== 'tsv' && format !== 'parquet' && format !== 'xlsx' && format !== 'jsonl') {
         throw new AnalystError({
           code: 'UNPROCESSABLE',
-          message: '无法推断格式,请用 --format 指定 csv|tsv|parquet',
+          message: '无法推断格式,请用 --format 指定 csv|tsv|parquet|xlsx|jsonl',
           request_id: null,
           run_id: null,
           retryable: false,
@@ -188,6 +192,7 @@ export function registerM1Commands(program: Command): void {
         dataset_name: options.name ?? basename(options.file, extname(options.file)),
         format,
         staged_path: stagedPath,
+        ...(options.sheet !== undefined ? { sheet: options.sheet } : {}),
       });
       await context.workspaces.persist();
       console.log(

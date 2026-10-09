@@ -54,7 +54,8 @@ afterEach(async () => {
 });
 
 describe.skipIf(!pluginAvailable)('createQualityAdapter(真实冻结插件)', () => {
-  it('对 fixture 计算 profile,报告落盘且原文件哈希不变', async () => {
+  // 真实冻结插件在 WSL 并行负载下接近 5s,放宽避免偶发超时
+  it('对 fixture 计算 profile,报告落盘且原文件哈希不变', { timeout: 30_000 }, async () => {
     const csvPath = await tempCsv(FIXTURE);
     const before = createHash('sha256').update(await readFile(csvPath)).digest('hex');
     const workspaceId = '00000000-0000-4000-8000-00000000abc001';
