@@ -26,6 +26,7 @@ function testConfig(root: string): ProductConfig {
       cell_timeout_seconds: 600,
       interrupt_grace_seconds: 10,
       max_cell_output_mib: 8,
+      agent_max_turns: 12,
     },
     data: {
       max_upload_mib: 16,

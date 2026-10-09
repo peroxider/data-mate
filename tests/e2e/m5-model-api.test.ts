@@ -408,7 +408,7 @@ describe.skipIf(!existsSync(cliEntry))('M5 全链路(模型服务 + REST API)', 
     expect(body.error.details?.current_revision).toBe(2);
   });
 
-  it('运行中取消 → 终态 interrupted', { timeout: 60_000 }, async () => {
+  it('运行中取消 → 确认停止 → 终态 cancelled', { timeout: 60_000 }, async () => {
     const submit = await fetch(`${apiBase}/api/v1/sessions/${sessionId}/runs`, {
       method: 'POST',
       headers: headers(),
@@ -428,9 +428,9 @@ describe.skipIf(!existsSync(cliEntry))('M5 全链路(模型服务 + REST API)', 
       headers: headers(),
     });
     expect(cancel.status).toBe(200);
-    // 无确认句柄的执行回路:取消不可确认 → 终态 interrupted(§12)
-    expect(((await cancel.json()) as { status: string }).status).toBe('interrupted');
-    expect(await waitForTerminal(runId, 30_000)).toBe('interrupted');
+    // M6 起执行回路注册取消句柄:abort 模型流并确认停止 → 终态 cancelled(§12 confirmed)
+    expect(((await cancel.json()) as { status: string }).status).toBe('cancelled');
+    expect(await waitForTerminal(runId, 30_000)).toBe('cancelled');
   });
 
   it('serve 重启:快照恢复 profile revision 与 Run 终态', { timeout: 60_000 }, async () => {

@@ -225,6 +225,8 @@ function checkDesignedPending(): void {
     'M0 无模型端点(内网 base_url 未配置);协议栈已锁定 openai-chat,汇聚验证在 M1。');
   record('genui-runtime', 'GenUI 注册表/DOM 双通道渲染', 'pending', 'n/a',
     'tool-inventory.json 已静态记录 render_ui/validate_dsh_ui 候选;运行时确认需模型端点 + 浏览器 DOM,M1 执行。');
+  record('cordis-tool-registration', 'analyst.* 工具注册进 DSH Cordis 插件机制', 'pending', 'n/a',
+    'M6 已交付产品侧 ToolRegistry + DshToolBridge 适配缝(§17);Cordis 注册待 DSH 集成阶段执行。');
 }
 
 // ---------------------------------------------------------------------------
