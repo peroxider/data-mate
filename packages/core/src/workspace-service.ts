@@ -854,6 +854,7 @@ export class WorkspaceService {
     const artifact = {
       id: newId(),
       run_id: input.run_id,
+      workspace_id: input.workspace_id,
       kind: input.kind,
       relative_path: input.relative_path,
       sha256: input.sha256,
