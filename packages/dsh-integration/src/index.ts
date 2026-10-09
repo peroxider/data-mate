@@ -7,3 +7,10 @@ export {
 export type { SpawnDshOptions } from './launch.js';
 export { createQualityAdapter } from './quality-adapter.js';
 export type { QualityAdapterOptions } from './quality-adapter.js';
+export { createDshToolBridge } from './tool-bridge.js';
+export type {
+  DshToolBridge,
+  DshToolResultLike,
+  DshBridgeableTool,
+  DshBridgeableRegistry,
+} from './tool-bridge.js';
