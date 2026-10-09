@@ -12,7 +12,9 @@ import {
 } from '@data-analyst/contracts';
 import type {
   AccessScope,
+  Artifact,
   ArtifactCommit,
+  ArtifactKind,
   ArtifactRef,
   DataRef,
   Dataset,
@@ -875,6 +877,21 @@ export class WorkspaceService {
   }
 
   // -------------------------------- 查询辅助 ---------------------------------
+
+  /** 列出 Workspace 产物(可按 run/kind 过滤);created_at 码点排序,有界由调用方负责。 */
+  async listArtifacts(
+    workspaceId: string,
+    filter: { run_id?: string; kind?: ArtifactKind } = {},
+  ): Promise<Artifact[]> {
+    const all = await this.#repository.artifacts.list();
+    return all
+      .filter((artifact) => artifact.workspace_id === workspaceId)
+      .filter((artifact) => (filter.run_id ? artifact.run_id === filter.run_id : true))
+      .filter((artifact) => (filter.kind ? artifact.kind === filter.kind : true))
+      .sort((a, b) =>
+        a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : 1,
+      );
+  }
 
   async listDatasets(workspaceId: string): Promise<Dataset[]> {
     const all = await this.#repository.datasets.list();
