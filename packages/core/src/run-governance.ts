@@ -71,6 +71,8 @@ export class RunGovernor {
   /** 进程内串行化:begin/finish/cancel 的状态更新逐个应用(§9 CAS 语义) */
   readonly #chain: { promise: Promise<void> };
   readonly #cancelHandlers = new Map<string, () => Promise<boolean>>();
+  /** 排队 Run 唤醒回调(唯一触发点:#dequeueNext);执行层据此启动排队 Run */
+  #onRunStarted: ((run: AnalysisRun) => void) | null = null;
 
   constructor(options: RunGovernorOptions) {
     this.#repository = options.repository;
@@ -350,6 +352,16 @@ export class RunGovernor {
     this.#cancelHandlers.set(runId, handler);
   }
 
+  /** Run 执行结束后注销取消回调,避免 Map 随 Run 数量增长。 */
+  unregisterCancelHandler(runId: string): void {
+    this.#cancelHandlers.delete(runId);
+  }
+
+  /** 执行层订阅排队 Run 唤醒事件;传 null 取消订阅。仅 #dequeueNext 触发。 */
+  setRunStartedListener(listener: ((run: AnalysisRun) => void) | null): void {
+    this.#onRunStarted = listener;
+  }
+
   async listRuns(sessionId?: string): Promise<AnalysisRun[]> {
     const runs = await this.#repository.runs.list();
     const filtered = sessionId ? runs.filter((run) => run.session_id === sessionId) : runs;
@@ -478,6 +490,7 @@ export class RunGovernor {
         message: '排队 Run 获得执行 lease(kernel slot)',
       });
       active.add(run.session_id);
+      this.#onRunStarted?.(started);
       if (active.size >= this.#maxActiveKernels) break;
     }
   }

@@ -273,3 +273,47 @@ describe('RunGovernor(§13 运行治理)', () => {
     expect(leases[0]!.status).toBe('stopped');
   });
 });
+
+describe('RunGovernor(M6:排队唤醒与取消注销)', () => {
+  it('setRunStartedListener:仅在排队 Run 唤醒(#dequeueNext)时触发,beginRun 不触发', async () => {
+    const { repository, sessions } = await seed();
+    const governor = new RunGovernor({ repository, maxActiveKernels: 1 });
+    const started: string[] = [];
+    governor.setRunStartedListener((run) => started.push(run.id));
+
+    // 直接获得 slot 的 Run 不经 #dequeueNext → 不触发
+    const first = await governor.beginRun({
+      session_id: sessions[0]!.id,
+      trigger: 'user_message',
+      model_profile_id: null,
+    });
+    expect(first.queued).toBe(false);
+    expect(started).toEqual([]);
+
+    const second = await governor.beginRun({
+      session_id: sessions[1]!.id,
+      trigger: 'user_message',
+      model_profile_id: null,
+    });
+    expect(second.queued).toBe(true);
+    expect(started).toEqual([]);
+
+    await governor.finishRun(first.run.id, 'completed');
+    expect(started).toEqual([second.run.id]);
+    governor.setRunStartedListener(null);
+  });
+
+  it('unregisterCancelHandler:注销后取消回落到 interrupted', async () => {
+    const { repository, sessions } = await seed();
+    const governor = new RunGovernor({ repository, maxActiveKernels: 2 });
+    const begun = await governor.beginRun({
+      session_id: sessions[0]!.id,
+      trigger: 'user_message',
+      model_profile_id: null,
+    });
+    governor.registerCancelHandler(begun.run.id, async () => true);
+    governor.unregisterCancelHandler(begun.run.id);
+    const { run } = await governor.cancelRun(begun.run.id);
+    expect(run.status).toBe('interrupted');
+  });
+});

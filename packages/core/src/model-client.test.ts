@@ -266,4 +266,48 @@ describe('OpenAiChatClient.stream', () => {
       },
     );
   });
+
+  it('取消信号:开始前已取消 → 立即 interrupted(cancelled);流中取消 → interrupted(cancelled)', async () => {
+    await withServer(
+      (_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write(sse({ choices: [{ delta: { content: 'A' } }] }));
+        // 保持连接不结束,等待客户端取消
+      },
+      async (baseUrl) => {
+        const client = new OpenAiChatClient();
+        // 流中取消
+        const controller = new AbortController();
+        const events = [];
+        for await (const event of client.stream(baseRequest({ base_url: baseUrl }), null, {
+          signal: controller.signal,
+        })) {
+          events.push(event);
+          if (event.type === 'text_delta') controller.abort();
+        }
+        const last = events.at(-1) as { type: string; reason: string };
+        expect(last.type).toBe('interrupted');
+        expect(last.reason).toBe('cancelled');
+      },
+    );
+
+    // 开始前已取消
+    const client = new OpenAiChatClient();
+    const controller = new AbortController();
+    controller.abort();
+    const events = [];
+    for await (const event of client.stream(baseRequest(), null, { signal: controller.signal })) {
+      events.push(event);
+    }
+    expect(events).toEqual([{ type: 'interrupted', reason: 'cancelled', text_so_far: '' }]);
+  });
+
+  it('complete 路径:已取消的信号 → CANCELLED 错误,不发起请求', async () => {
+    const client = new OpenAiChatClient();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      client.complete(baseRequest(), null, { signal: controller.signal }),
+    ).rejects.toMatchObject({ payload: { code: 'CANCELLED', retryable: false } });
+  });
 });

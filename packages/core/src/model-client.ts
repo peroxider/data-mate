@@ -168,22 +168,33 @@ export class OpenAiChatClient implements ModelInvocationPort {
     this.#fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /** 调用方取消信号(§12)与请求超时信号组合;无外部信号时保持原超时行为。 */
+  #combinedSignal(
+    request: ModelCompleteRequest,
+    options?: { signal?: AbortSignal },
+  ): AbortSignal {
+    const timeout = AbortSignal.timeout(request.response_timeout_ms);
+    return options?.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
+  }
+
   async complete(
     request: ModelCompleteRequest,
     credential: string | null,
+    options?: { signal?: AbortSignal },
   ): Promise<ModelCompleteResult> {
     const url = endpointUrl(request.base_url, '/chat/completions');
     const body = JSON.stringify(buildRequestBody(request, false));
 
     let lastError: AnalystError | null = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+      if (options?.signal?.aborted) throw err('CANCELLED', '请求已取消', { retryable: false });
       let response: Response;
       try {
         response = await this.#fetchImpl(url, {
           method: 'POST',
           headers: this.#headers(credential),
           body,
-          signal: AbortSignal.timeout(request.response_timeout_ms),
+          signal: this.#combinedSignal(request, options),
         });
       } catch (cause) {
         lastError = this.#networkError(cause, request);
@@ -213,7 +224,12 @@ export class OpenAiChatClient implements ModelInvocationPort {
   async *stream(
     request: ModelCompleteRequest,
     credential: string | null,
+    options?: { signal?: AbortSignal },
   ): AsyncIterable<ModelStreamEvent> {
+    if (options?.signal?.aborted) {
+      yield { type: 'interrupted', reason: 'cancelled', text_so_far: '' };
+      return;
+    }
     const url = endpointUrl(request.base_url, '/chat/completions');
     const body = JSON.stringify(buildRequestBody(request, true));
 
@@ -221,12 +237,16 @@ export class OpenAiChatClient implements ModelInvocationPort {
     let response: Response | null = null;
     let lastError: AnalystError | null = null;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
+      if (options?.signal?.aborted) {
+        yield { type: 'interrupted', reason: 'cancelled', text_so_far: '' };
+        return;
+      }
       try {
         const candidate = await this.#fetchImpl(url, {
           method: 'POST',
           headers: this.#headers(credential),
           body,
-          signal: AbortSignal.timeout(request.response_timeout_ms),
+          signal: this.#combinedSignal(request, options),
         });
         if (candidate.ok) {
           response = candidate;
@@ -239,6 +259,11 @@ export class OpenAiChatClient implements ModelInvocationPort {
         }
         throw this.#httpError(candidate.status, detail);
       } catch (cause) {
+        // 调用方取消:不重试、不落网络错误(§12)
+        if (options?.signal?.aborted) {
+          yield { type: 'interrupted', reason: 'cancelled', text_so_far: '' };
+          return;
+        }
         // 4xx 等明确拒绝不盲目重试(§10);仅连接类错误参与有界重试
         if (cause instanceof AnalystError) throw cause;
         lastError = this.#networkError(cause, request);
@@ -335,8 +360,11 @@ export class OpenAiChatClient implements ModelInvocationPort {
     } catch (cause) {
       void reader.cancel().catch(() => undefined);
       yield* drainToolCalls(fragments, emittedCallIds);
-      const reason =
-        cause instanceof Error && cause.name === 'TimeoutError'
+      const aborted =
+        (cause instanceof Error && cause.name === 'AbortError') || options?.signal?.aborted;
+      const reason = aborted
+        ? 'cancelled'
+        : cause instanceof Error && cause.name === 'TimeoutError'
           ? 'response_timeout'
           : cause instanceof Error
             ? `stream_disconnected: ${cause.message.slice(0, 200)}`

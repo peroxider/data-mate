@@ -19,3 +19,4 @@ export * from './figure.js';
 export * from './train-report.js';
 export * from './report.js';
 export * from './distribution.js';
+export * from './agent-tools.js';
