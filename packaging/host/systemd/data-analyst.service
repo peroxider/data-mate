@@ -1,0 +1,19 @@
+[Unit]
+Description=Data Analyst (data-analyst, offline delivery)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@INSTALL_ROOT@/current
+ExecStart=@INSTALL_ROOT@/current/bin/data-analyst serve --config @INSTALL_ROOT@/current/config/config.example.yaml
+Restart=on-failure
+RestartSec=5
+# ADR008 可信单机执行边界:进程最小权限,不授予网络管理能力
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=@INSTALL_ROOT@
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -18,5 +18,8 @@
   "dependencies": {
     "@data-analyst/contracts": "workspace:*",
     "@data-analyst/core": "workspace:*"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

@@ -19,5 +19,8 @@
     "@data-analyst/contracts": "workspace:*",
     "js-yaml": "^4.1.0",
     "zod": "^4.4.3"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

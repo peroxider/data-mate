@@ -13,11 +13,12 @@
     "clean": "tsc -b --clean",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint packages apps tools --no-error-on-unmatched-pattern",
+    "lint": "eslint packages apps tools distributions --no-error-on-unmatched-pattern",
     "doctor": "node apps/cli/dist/index.js doctor --config config/dev.example.yaml",
     "version": "node apps/cli/dist/index.js version --json",
     "freeze": "tsx tools/freeze-components.ts",
     "verify": "tsx tools/verify-contracts.ts",
+    "dist:build": "tsx distributions/assemble.ts",
     "config:validate": "node apps/cli/dist/index.js config validate --config config/dev.example.yaml"
   },
   "devDependencies": {

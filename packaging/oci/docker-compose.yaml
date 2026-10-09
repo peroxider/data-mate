@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# M4 Compose 包(§24):从同一应用发行物构建的镜像启动服务。
+# 用户配置经 bind mount 注入,容器内不回源、不下载。
+# ---------------------------------------------------------------------------
+services:
+  data-analyst:
+    image: data-analyst:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: data-analyst
+    # ADR008:仅绑定本机回环
+    ports:
+      - "127.0.0.1:3080:3080"
+    volumes:
+      # 客户配置目录(需包含 config.yaml;相对路径以该目录为基准落盘)
+      - ./config:/srv/config
+    command: ["serve", "--config", "/srv/config/config.yaml"]
+    restart: unless-stopped

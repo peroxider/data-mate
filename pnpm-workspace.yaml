@@ -3,3 +3,4 @@ packages:
   - packages/*
   - tests/*
   - tools
+  - distributions

@@ -17,5 +17,8 @@
   },
   "dependencies": {
     "@data-analyst/contracts": "workspace:*"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }

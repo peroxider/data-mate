@@ -13,3 +13,4 @@ export * from './analysis.js';
 export * from './figure.js';
 export * from './train-report.js';
 export * from './report.js';
+export * from './distribution.js';

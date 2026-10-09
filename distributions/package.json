@@ -1,0 +1,10 @@
+{
+  "name": "@data-analyst/distributions",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "M4 应用发行物组装与 BOM 生成(§23/§24)",
+  "dependencies": {
+    "@data-analyst/core": "workspace:*"
+  }
+}

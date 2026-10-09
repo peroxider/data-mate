@@ -77,14 +77,20 @@ function checkWritableDir(dir: string): CheckResult {
   }
 }
 
-function checkPython(config: ProductConfig): CheckResult {
+function checkPython(config: ProductConfig, runtimeDir: string | null): CheckResult {
   const candidates =
     config.runtime.python === 'auto' ? ['python3', 'python'] : [config.runtime.python];
   for (const py of candidates) {
+    // 发行物内运行时位于 <configDir>/../python/analyst_runtime(§23 布局),
+    // 与 m1 分析上下文同一解析规则,保证安装后 doctor 与分析行为一致
     const probe = spawnSync(
       py,
       ['-m', 'analyst_runtime', 'doctor', '--json'],
-      { encoding: 'utf8', timeout: 10_000 },
+      {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: runtimeDir ? { ...process.env, PYTHONPATH: runtimeDir } : process.env,
+      },
     );
     if (probe.error) continue; // ENOENT 等 → 尝试下一个候选
     if (probe.status === 0) {
@@ -140,7 +146,9 @@ export function registerDoctorCommand(program: Command): void {
         checks.push(checkWritableDir(dir));
       }
 
-      checks.push(checkPython(config));
+      const configDir = resolveConfigDir(options.config);
+      const runtimeDir = resolve(configDir, '..', 'python', 'analyst_runtime');
+      checks.push(checkPython(config, existsSync(runtimeDir) ? runtimeDir : null));
       checks.push(checkDshBin());
       checks.push(checkComponentsLock(options.config));
 
