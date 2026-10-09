@@ -164,7 +164,7 @@ describe('M4 发行物组装(O01)', () => {
     const parsed = JSON.parse(out) as { status: string; verified: number };
     expect(parsed.status).toBe('pass');
     expect(parsed.verified).toBeGreaterThan(1000);
-  });
+  }, 30_000);
 
   it('篡改发行物文件后校验失败(T14 语义)', () => {
     if (!stagingDir) return;

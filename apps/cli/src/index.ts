@@ -10,6 +10,7 @@ import { registerM1Commands } from './commands/m1.js';
 import { registerM2Commands } from './commands/m2.js';
 import { registerM3Commands } from './commands/m3.js';
 import { registerM4Commands } from './commands/m4.js';
+import { registerM5Commands } from './commands/m5.js';
 
 // ---------------------------------------------------------------------------
 // W5 — CLI。M0 提供环境自检、离线版本摘要、配置校验与受控 DSH 启动桩;
@@ -31,6 +32,7 @@ registerM1Commands(program);
 registerM2Commands(program);
 registerM3Commands(program);
 registerM4Commands(program);
+registerM5Commands(program);
 
 program.parseAsync(process.argv).catch((error: unknown) => {
   if (error instanceof AnalystError) {
