@@ -54,6 +54,8 @@ export interface BeginRunInput {
   trigger: RunTrigger;
   model_profile_id: string | null;
   idempotency_key?: string | null;
+  /** §629 幂等:同 key 不同 payload 由 API 层以 409 拒绝;此处仅登记负载指纹 */
+  payload_hash?: string | null;
 }
 
 export interface BeginRunOutcome {
@@ -194,6 +196,7 @@ export class RunGovernor {
         config_revision: configRevision,
         model_profile_snapshot_id: profileSnapshot ? profileSnapshot.id : null,
         idempotency_key: input.idempotency_key ?? null,
+        payload_hash: input.payload_hash ?? null,
         started_at: nowIso(),
         ended_at: null,
       });

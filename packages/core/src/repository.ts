@@ -15,6 +15,7 @@ import {
   ModelProfileSchema,
   DataSourceBindingSchema,
   RunEventSchema,
+  RunStreamEventSchema,
   AnalystError,
 } from '@data-analyst/contracts';
 import type {
@@ -32,6 +33,7 @@ import type {
   ModelProfile,
   DataSourceBinding,
   RunEvent,
+  RunStreamEvent,
 } from '@data-analyst/contracts';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +63,8 @@ export interface RepositoryPort {
   readonly modelProfiles: EntityStore<ModelProfile>;
   readonly dataSources: EntityStore<DataSourceBinding>;
   readonly runEvents: EntityStore<RunEvent>;
+  /** §17 运行事件流(单调 seq,持久保存状态与产物事件) */
+  readonly runStreamEvents: EntityStore<RunStreamEvent>;
   /** 将全部集合写入 JSON 快照文件 */
   snapshotTo(path: string): Promise<void>;
   /** 从 JSON 快照恢复;任何实体未通过 Schema 校验 → CONFIG_INVALID */
@@ -120,6 +124,7 @@ function collectionSchemas(): Record<string, { safeParse(v: unknown): { success:
     modelProfiles: ModelProfileSchema,
     dataSources: DataSourceBindingSchema,
     runEvents: RunEventSchema,
+    runStreamEvents: RunStreamEventSchema,
   };
 }
 
@@ -138,6 +143,7 @@ export class InMemoryRepository implements RepositoryPort {
   readonly modelProfiles = new MemoryStore<ModelProfile>();
   readonly dataSources = new MemoryStore<DataSourceBinding>();
   readonly runEvents = new MemoryStore<RunEvent>();
+  readonly runStreamEvents = new MemoryStore<RunStreamEvent>('event_id');
 
   async snapshotTo(path: string): Promise<void> {
     const snapshot: SnapshotFile = {
@@ -158,6 +164,7 @@ export class InMemoryRepository implements RepositoryPort {
         modelProfiles: await this.modelProfiles.list(),
         dataSources: await this.dataSources.list(),
         runEvents: await this.runEvents.list(),
+        runStreamEvents: await this.runStreamEvents.list(),
       },
     };
     await mkdir(dirname(path), { recursive: true });
@@ -253,6 +260,8 @@ export class InMemoryRepository implements RepositoryPort {
         return this.dataSources;
       case 'runEvents':
         return this.runEvents;
+      case 'runStreamEvents':
+        return this.runStreamEvents;
       default:
         throw new Error(`未知集合: ${name}`);
     }
