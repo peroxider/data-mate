@@ -6,10 +6,13 @@ import { CapabilityLevelSchema } from './entities.js';
 // 相对路径以配置文件所在目录解析(由 core 加载器实现,本文件只定义形状)。
 // ---------------------------------------------------------------------------
 
-/** §18 credential_ref:env:NAME、file:PATH、svc:ID,无凭据 Endpoint 显式 none。 */
+/** §18 credential_ref:env:NAME、file:PATH、svc:ID,无凭据 Endpoint 显式 none(可带标记 none:xxx)。 */
 export const CredentialRefSchema = z
   .string()
-  .regex(/^(env|file|svc):.+$|^none$/, 'credential_ref must be env:NAME, file:PATH, svc:ID or none');
+  .regex(
+    /^(env|file|svc):.+$|^none(:[A-Za-z0-9._-]+)?$/,
+    'credential_ref must be env:NAME, file:PATH, svc:ID or none[:MARKER]',
+  );
 export type CredentialRef = z.infer<typeof CredentialRefSchema>;
 
 export const ServerConfigSchema = z.strictObject({

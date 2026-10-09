@@ -46,6 +46,8 @@ export const AnalysisRunSchema = z.object({
   config_revision: z.number().int().nonnegative(),
   model_profile_snapshot_id: UuidSchema.nullable(),
   idempotency_key: z.string().min(1).nullable(),
+  /** §629:同 key 不同 payload 返回 409;旧快照缺省为 null(不参与比对) */
+  payload_hash: z.string().length(64).nullable().default(null),
   started_at: IsoDatetimeSchema,
   ended_at: IsoDatetimeSchema.nullable(),
 });
@@ -149,6 +151,9 @@ export const ArtifactKindSchema = z.enum([
 export const ArtifactSchema = z.object({
   id: UuidSchema,
   run_id: UuidSchema.nullable(),
+  // 产物文件实际位于 workspacesDir/<workspace_id>/<relative_path>;
+  // relative_path 仅在 Workspace 内作用,下载时需按 workspace_id 定位(§17)。
+  workspace_id: UuidSchema.nullable().default(null),
   kind: ArtifactKindSchema,
   relative_path: z.string().min(1),
   sha256: z.string().length(64),
@@ -166,7 +171,7 @@ export const ModelProfileSchema = z.object({
   protocol: z.literal('openai-chat'),
   base_url: z.url(),
   model: z.string().min(1),
-  credential_ref: z.string().regex(/^(env|file|none|svc):.+/),
+  credential_ref: z.string().regex(/^(env|file|svc):.+$|^none(:[A-Za-z0-9._-]+)?$/),
   capabilities: z.object({
     streaming: CapabilityLevelSchema,
     tool_calling: CapabilityLevelSchema,
@@ -174,6 +179,15 @@ export const ModelProfileSchema = z.object({
   }),
   config_hash: z.string().length(64),
   created_at: IsoDatetimeSchema,
+  // §10/§18:ModelProfile 是运行期权威配置(无秘密;凭据仅存 credential_ref 引用)。
+  // optional 以兼容旧快照;新保存路径总是写入完整设置。
+  connect_timeout_ms: z.number().int().min(1000).optional(),
+  response_timeout_ms: z.number().int().min(1000).optional(),
+  stream_idle_timeout_ms: z.number().int().min(1000).optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  max_output_tokens: z.number().int().min(1).optional(),
+  context_window_tokens: z.number().int().min(1024).optional(),
+  extra_body: z.record(z.string(), z.unknown()).optional(),
 });
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;
 
@@ -182,7 +196,7 @@ export const DataSourceBindingSchema = z.object({
   workspace_id: UuidSchema.nullable(),
   driver: z.string().min(1),
   endpoint: z.string().min(1),
-  credential_ref: z.string().regex(/^(env|file|none|svc):.+/),
+  credential_ref: z.string().regex(/^(env|file|svc):.+$|^none(:[A-Za-z0-9._-]+)?$/),
   readonly: z.literal(true),
   created_at: IsoDatetimeSchema,
 });
