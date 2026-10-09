@@ -19,6 +19,7 @@ export const ErrorCodeSchema = z.enum([
   'MODEL_UNAVAILABLE',
   'DATABASE_UNAVAILABLE',
   'TIMEOUT',
+  'CANCELLED',
   'INTERNAL',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
@@ -90,6 +91,8 @@ export function httpStatusFor(code: ErrorCode): number {
       return 502;
     case 'TIMEOUT':
       return 504;
+    case 'CANCELLED':
+      return 499;
     case 'INTERNAL':
       return 500;
   }

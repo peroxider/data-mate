@@ -37,6 +37,7 @@ export const RunStatusSchema = z.enum([
   'interrupted',
 ]);
 export const RunPhaseSchema = z.enum(['inspect', 'quality', 'compute', 'validate', 'present']);
+export type RunPhase = z.infer<typeof RunPhaseSchema>;
 export const AnalysisRunSchema = z.object({
   id: UuidSchema,
   session_id: UuidSchema,
@@ -148,6 +149,7 @@ export const ArtifactKindSchema = z.enum([
   'quality-report',
   'ml-model',
 ]);
+export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export const ArtifactSchema = z.object({
   id: UuidSchema,
   run_id: UuidSchema.nullable(),

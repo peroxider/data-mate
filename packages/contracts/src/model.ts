@@ -118,12 +118,18 @@ export type ModelStreamEvent = z.infer<typeof ModelStreamEventSchema>;
  * §10 ModelInvocationPort:对模型能力的归一化。首版协议为 openai-chat;
  * DSH 适配实现应委托其原生 Completion/Provider 调用层,而非再次启动 Agent Turn。
  * 凭据由服务端解析 credential_ref,绝不作为本端口参数出现。
+ * options.signal 为调用方可选的取消信号(§12 取消语义),不进入 wire 请求。
  */
 export interface ModelInvocationPort {
-  complete(request: ModelCompleteRequest, credential: string | null): Promise<ModelCompleteResult>;
+  complete(
+    request: ModelCompleteRequest,
+    credential: string | null,
+    options?: { signal?: AbortSignal },
+  ): Promise<ModelCompleteResult>;
   stream(
     request: ModelCompleteRequest,
     credential: string | null,
+    options?: { signal?: AbortSignal },
   ): AsyncIterable<ModelStreamEvent>;
 }
 

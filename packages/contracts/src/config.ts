@@ -44,6 +44,8 @@ export const RuntimeConfigSchema = z.strictObject({
   cell_timeout_seconds: z.number().int().min(1),
   interrupt_grace_seconds: z.number().int().min(1).max(120),
   max_cell_output_mib: z.number().int().min(1),
+  /** §13 Agent 多轮回路轮次上限;耗尽 → Run failed */
+  agent_max_turns: z.number().int().min(1).max(50).default(12),
 });
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 
