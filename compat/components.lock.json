@@ -4,7 +4,7 @@
   "platform": "linux-x86_64",
   "application": {
     "version": "0.1.0-dev",
-    "commit": "unversioned-working-tree"
+    "commit": "f091d3e4b79c2384e3d9519fe489cfd80f77ab54"
   },
   "components": {
     "dsh": {
@@ -233,7 +233,7 @@
     "compatibility_report": "compat/compatibility.json (pending-W7)",
     "offline_report": "compat/offline-verification.json (pending-W7)"
   },
-  "frozen_at": "2026-10-08T10:17:39.941Z",
+  "frozen_at": "2026-10-21T13:32:43.347Z",
   "frozen_by": "pnpm freeze (pnpm 10.33.0)",
   "profile_dir": ".m0/profile",
   "profile_name": "data-analysis-m0"
