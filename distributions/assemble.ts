@@ -131,7 +131,11 @@ async function main(): Promise<void> {
   mkdirSync(join(stagingRoot, 'compat'), { recursive: true });
   cpSync(join(repoRoot, 'compat', 'components.lock.json'), join(stagingRoot, 'compat', 'components.lock.json'));
   if (existsSync(join(repoRoot, '.m0', 'profile'))) {
-    copyDirFiltered(join(repoRoot, '.m0', 'profile'), join(stagingRoot, '.m0', 'profile'), (n) => n === 'node_modules');
+    copyDirFiltered(join(repoRoot, '.m0', 'profile'), join(stagingRoot, '.m0', 'profile'), (n) => n === 'node_modules' || n === '.data-mate-runtime-patches');
+  }
+  const runtimePatchManifest = join(repoRoot, 'compat', 'runtime-patches.json');
+  if (existsSync(runtimePatchManifest)) {
+    cpSync(runtimePatchManifest, join(stagingRoot, 'compat', 'runtime-patches.json'));
   }
 
   console.log('[4/7] 拷贝安装与 OCI 打包资产');

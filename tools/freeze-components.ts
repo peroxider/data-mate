@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
+import { applyRuntimePatches } from './runtime-patches.js';
 
 // ---------------------------------------------------------------------------
 // W6 组件冻结:把五个固定版本组件安装进隔离 profile(§21/计划 D4),
@@ -181,6 +182,10 @@ async function main(): Promise<void> {
   console.log('冻结五组件到隔离 profile:', profileDir);
   installFrozen(FROZEN.map((spec) => ({ ...spec })));
 
+  // Registry integrity describes upstream packages; this separately recorded
+  // overlay is the product's reviewed compatibility layer.
+  const runtimePatchFiles = applyRuntimePatches(profileDir, true);
+
   const cliPkg = require('../apps/cli/package.json') as { version: string };
   const components: Record<string, unknown> = {};
   const inventoryComponents: Record<string, unknown> = {};
@@ -240,6 +245,7 @@ async function main(): Promise<void> {
   };
 
   mkdirSync(compatDir, { recursive: true });
+  writeFileSync(join(compatDir, 'runtime-patches.json'), `${JSON.stringify({ generated_at: new Date().toISOString(), files: runtimePatchFiles }, null, 2)}\n`, 'utf8');
   writeFileSync(join(compatDir, 'components.lock.json'), `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   writeFileSync(
     join(compatDir, 'dependency-tree.json'),

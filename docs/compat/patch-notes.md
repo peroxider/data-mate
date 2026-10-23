@@ -1,4 +1,31 @@
-# M0 补丁与兼容性说明(patch notes)
+# 补丁与兼容性说明(patch notes)
+
+## 2026-10-23 浏览器端到端回归补丁
+
+当前产品在锁定上游包之上应用仓库维护的兼容层，原 M0 的“零源码补丁”记录仅描述下文的历史冻结状态。
+
+补丁入口：`tools/runtime-patches.ts`；命令：`tools/apply-runtime-patches.ts`。适用版本：文档预览 `0.2.0-rc.2`、Notebook `0.2.4`、GenUI `0.11.4`。
+
+- HTML 预览：以 `srcDoc` 加载已打包文档，避免嵌入式浏览器无法导航父页面 Blob URL 而出现空白。保留 `sandbox="allow-scripts"`、不增加 `allow-same-origin`，继续使用原资源打包、更新隔离和清理逻辑。
+- Notebook：公开快照排除内部 `_runJob` Promise；Agent 的 `nb_kernel_restart_and_run_all` 与 `nb_run_all` 一样传入 `wait:true`，等待逐单元执行结果。HTTP 页面异步排队行为保持不变。
+- GenUI：将表格 `details:true/false` 视为没有实际行详情数据的显示提示并规范化为省略字段。合法行详情数组保留；对象、字符串等不合法详情继续报错。修复同时覆盖源代码、宿主验证、浏览器和离线导出运行时，不全局放宽字段校验。
+
+在安装 profile 的环境中执行（工作目录为本仓库）：
+
+```sh
+# 只校验版本、补丁锚点并显示预期变化，不修改文件
+node --import tsx tools/apply-runtime-patches.ts --profile /path/to/profile
+# 明确应用；应用后重启对应 DSH 服务并刷新页面
+node --import tsx tools/apply-runtime-patches.ts --profile /path/to/profile --apply
+```
+
+也可使用 `pnpm runtime:patch --profile /path/to/profile --apply`。`pnpm freeze` 在安装精确版本后自动应用兼容层，另写 `compat/runtime-patches.json`；npm integrity 继续描述上游输入，不冒充补丁后的文件哈希。
+
+应用前会检查全部包版本与替换锚点，任何不匹配都在写文件前终止。写入使用临时文件加原子替换，避免修改 pnpm 共享硬链接；重复应用无变化。原文件与前后 SHA256 保存在目标 profile 的 `.data-mate-runtime-patches/`。该备份目录不进入发行物，补丁清单可随发行物保留。
+
+回归用例在 `tools/runtime-patches.test.ts`，覆盖 HTML 的 iframe 属性、队列 Promise 隔离、等待完成语义、GenUI 嵌套表格和正常/异常详情。未安装冻结 profile 的源码环境会明确跳过这些依赖集成用例。
+
+## 原 M0 冻结记录
 
 - 生成:2026-10-08(`pnpm freeze` + `pnpm verify` 实际运行产物)
 - 结论:**零源码补丁** —— 五个上游组件按原包精确版本使用,未 fork、未打补丁。
