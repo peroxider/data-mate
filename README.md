@@ -1,6 +1,6 @@
 # data-analyst
 
-基于 DeepSeek Harness(DSH)+ 四个插件构建的数据分析 Agent。本仓库当前处于 **M0 阶段:组件冻结与领域层骨架**(设计文档 §24),不包含模型服务调用与端到端业务流。
+基于 DeepSeek Harness(DSH)+ 四个插件构建的数据分析 Agent。本仓库当前处于 **M6 阶段**:领域层、REST API(`serve`)、Agent 多轮工具回路与端到端链路已落地,并具备本机构建→安装→部署的完整流程(见下文[部署](#部署))。
 
 > 设计文档:`docs/Data_Analysis_Agent_Requirements_Detailed_Design_v0.1.md`(下文 §N 均指该文档章节)
 
@@ -32,6 +32,89 @@ pnpm lint           # eslint packages apps tools
 ```
 
 已实现的包(`@data-analyst/contracts`、`@data-analyst/core`)构建产物输出到各自 `dist/`,以 workspace 依赖(`workspace:*`)相互引用。
+
+## 部署
+
+本节是经本机(WSL2)实际验证过的部署流程。
+
+### 1. 构建发行物
+
+```bash
+pnpm build         # tsc -b 全量构建
+pnpm dist:build    # 组装发行物 → dist/distributions/(目录 + 同名 .tar.gz,含 manifest 与 sha256)
+```
+
+### 2. 本机安装
+
+```bash
+packaging/host/install.sh --media dist/distributions/<发行物目录或.tar.gz> --prefix ~/.local/data-analyst
+```
+
+安装结果:`$PREFIX/releases/<版本>/` + `current` 符号链接 + `bin/data-analyst` 包装器。脚本末尾会打印启动示例。可选 `--systemd` 安装 `packaging/host/systemd/data-analyst.service` 单元;回滚用 `packaging/host/rollback.sh`。
+
+### 3. 配置模型与凭据
+
+复制 `$PREFIX/current/config/config.example.yaml` 为实际配置,关键字段:
+
+```yaml
+model:
+  profile_id: <固定 UUID>          # 必须是合法 UUID,否则 serve 启动即崩
+  protocol: openai-chat             # 当前唯一协议;MiniMax/DeepSeek 等用其 OpenAI 兼容端点
+  base_url: https://api.minimaxi.com/v1
+  model: MiniMax-M3
+  credential_ref: env:MINIMAX_API_KEY   # 只存引用,绝不把密钥写进配置
+  capabilities:
+    streaming: required
+    tool_calling: required          # agent 工具回路必需
+    vision: disabled
+```
+
+密钥放环境变量(建议独立 env 文件,权限 600):
+
+```bash
+echo 'MINIMAX_API_KEY=sk-xxxx' > ~/.local/data-analyst/model.env && chmod 600 ~/.local/data-analyst/model.env
+# 启动 serve 前必须先加载:
+set -a; . ~/.local/data-analyst/model.env; set +a
+```
+
+**重要**:配置 yaml 的 `model` 段只做**首次种子**。运行期 ModelProfile 的权威持久化在 `$STATE_DIR/product.sqlite`,之后修改要走 REST API(带乐观锁):
+
+```bash
+TOKEN=$(cat $PREFIX/current/config/.m0/state/credentials/local-token)
+# 更新(注意 expected_revision 要与当前 revision 一致):
+curl -X PUT http://127.0.0.1:3080/api/v1/model-profiles/<profile_id> \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{ ... }'
+# 五层能力探测(network/auth/chat/streaming/tool_calling):
+curl -X POST http://127.0.0.1:3080/api/v1/model-profiles/<profile_id>/test -H "Authorization: Bearer $TOKEN"
+```
+
+任何 `required` 能力探测未 `passed`,API 层会拒绝启动 Agent。
+
+### 4. 启动产品 API
+
+```bash
+cd $PREFIX
+set -a; . ./model.env; set +a
+nohup node current/app/dist/index.js serve --config ./current/config/config.example.yaml > serve.log 2>&1 &
+# 自检:curl http://127.0.0.1:3080/healthz ;认证边界外的就绪探测:/readyz
+```
+
+API 前缀 `/api/v1`,认证为 `Authorization: Bearer <local-token>`(token 在 `current/config/.m0/state/credentials/local-token`)。
+
+### 5. 启动 DSH Web UI
+
+Web UI 由 DSH profile(`~/.dsh/profiles/<name>/`)组装:bundles 列表 + `cordis.patch.yml` 用户补丁层。两条纪律:
+
+- **profile 必须自带 `@deepseek-ai/dsh` CLI 并用它引导**(写进 profile 的 dependencies)。用外部二进制引导会导致 boot 进程与 profile 内 `dsh-config-editor` 各持一份 `dsh-app-boot` 模块实例,settings 写入报 "profile reload requires the root Include entry"(见 FAQ);
+- 自定义 profile 直接 `dsh --profile <name>` 引导(`dsh web` 子命令不接受 `--profile`):
+
+```bash
+nohup ~/.dsh/profiles/<name>/node_modules/.bin/dsh --profile <name> --no-open --host 127.0.0.1 --port 8081 > dsh-web.log 2>&1 &
+# 访问链接(含随机 token,每次启动变化)打印在日志首行:
+# dsh web: http://127.0.0.1:8081/?token=...
+```
+
+向 profile 添加新插件条目要在 `cordis.patch.yml` 用 `- insert:` 包裹新条目(`id+name` 直接写只对已存在条目生效,新条目会警告 "entry not found" 被忽略);停用条目用 `- id: <id>` + `disabled: true`。
 
 ## 架构
 
@@ -125,6 +208,40 @@ data-mate/
 - **导入守卫**:`packages/contracts` 禁止导入 DSH/React/Python 侧代码。
 - **验证纪律**(§7):无模型端点/内核/数据库环境下无法验证的项,状态只能记 `pending` 并附证据,**绝不伪造 pass**;`compatibility.json` 状态严格为 `pass | fail | pending`。
 - **路径纪律**(§9):业务代码不接受调用方拼接的任意绝对路径,一律经 `packages/core` 的 `resolvePaths` 及其派生函数(内部对 ID 做 UUID 校验)。
+
+## FAQ
+
+**Q: Web UI 显示"暂时无法保存确认状态,请重试。"(或保存任何设置报 "profile reload requires the root Include entry")**
+
+profile 由外部 DSH 二进制引导,boot 进程与 profile 内插件各持有一份 `dsh-app-boot` 模块实例,根 Include 登记在另一份的 `bootstrapIncludes` WeakMap 里。修法:把 `@deepseek-ai/dsh` 加进 profile 的 dependencies,并始终用 `~/.dsh/profiles/<name>/node_modules/.bin/dsh` 引导(见部署第 5 步)。
+
+**Q: 重启 dsh/serve 报 `EADDRINUSE: 8081/3080 already in use`**
+
+dsh 的 `bin.js` 会派生子 node 进程,而后台化启动时 `$!` 记到的往往是包装 shell 的 pid——只 kill pid 文件留不下子进程。用 `ss -tlnp | grep <端口>` 找到真正的监听 pid 全部 kill 后再启动。
+
+**Q: serve 启动即崩,报 zod "Invalid UUID"**
+
+`model.profile_id` 不是 UUID。`ModelProfileSchema.id` 要求 UUID,示例配置里的占位符也必须是合法 UUID 形式。
+
+**Q: 改了配置里的模型信息,`model-profiles/{id}/test` 探测却还在连旧端点**
+
+运行期 ModelProfile 权威在 `$STATE_DIR/product.sqlite`,配置 yaml 只做首次种子。用 `GET /api/v1/model-profiles/<id>` 看运行期实际值,用 `PUT`(带 `expected_revision`)更新,再重跑探测。
+
+**Q: 探测报"无法连接模型服务",但同机 curl 能通**
+
+先确认 serve 进程环境里有凭据:`tr '\0' '\n' < /proc/<serve_pid>/environ | grep <ENV_NAME>`。`credential_ref: env:XXX` 在进程启动时解析,启动前忘了加载 env 文件就会失败。
+
+**Q: MiniMax 模型怎么接?**
+
+当前协议层只支持 `openai-chat`。MiniMax 的 OpenAI 兼容端点为 `https://api.minimaxi.com/v1`(海外站 `api.minimax.io`),同一把 key 也可用于其 `/anthropic` 端点。`tool_calling` 建议 `required` 并跑一次五层探测确认。注意 M3 系列回复的 content 内自带 `<think>…</think>` 思维链,展示层如需干净正文要自行过滤。
+
+**Q: `.m0/profile` 的 node_modules 全是断链 / 根 pnpm-lock 出现上万行假差异**
+
+`.m0/profile` 是独立 pnpm workspace(自带 `pnpm-workspace.yaml` 与 `pnpm-lock.yaml`)。断链用 `pnpm freeze` 幂等重建;根 lock 若残留 `.m0/profile` importer,在仓库根跑 `pnpm install --lockfile-only` 重新生成即可。
+
+**Q: WSL 下 vitest 偶发 worker RPC 超时退出**
+
+`/mnt/c` 的 9p 文件系统 I/O 抖动所致,重跑即可;仓库放在 WSL 原生文件系统(如 `~/`)可根治。
 
 ## 相关文档
 
