@@ -141,6 +141,28 @@ function pythonVersion(): string {
   throw new Error('未找到 Python 解释器,无法记录 runtime.python');
 }
 
+/** pnpm ls 的 path 字段是构建机绝对路径,直接入库会把目录布局写进仓库
+ * (历史上 /mnt/c 与 /mnt/e 两台机器各自重写全树)。统一改写为仓库相对
+ * 路径使依赖树证据机器无关;改写后仍检出常见系统绝对路径则拒绝写入。 */
+function sanitizeTreePaths(node: unknown): unknown {
+  if (typeof node === 'string') {
+    if (node === repoRoot) return '.';
+    return node.startsWith(`${repoRoot}/`) ? node.slice(repoRoot.length + 1) : node;
+  }
+  if (Array.isArray(node)) return node.map(sanitizeTreePaths);
+  if (node && typeof node === 'object') {
+    return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, sanitizeTreePaths(value)]));
+  }
+  return node;
+}
+
+function assertNoMachinePaths(tree: unknown): void {
+  const leaked = JSON.stringify(tree).match(/"(\/mnt\/|\/home\/|\/root\/|\/Users\/|\/tmp\/)[^"]*"/g);
+  if (leaked) {
+    throw new Error(`依赖树仍含机器绝对路径,拒绝写入: ${leaked.slice(0, 3).join(', ')}…`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 工具清单:静态正则扫描(仅静态,不启动 profile;确认在 W7)。
 // ---------------------------------------------------------------------------
@@ -229,6 +251,8 @@ async function main(): Promise<void> {
   if (tree.status !== 0) {
     throw new Error(`pnpm ls 失败: ${tree.stderr.slice(0, 500)}`);
   }
+  const sanitizedTree = sanitizeTreePaths(JSON.parse(tree.stdout));
+  assertNoMachinePaths(sanitizedTree);
 
   const lock = {
     schema_version: 1,
@@ -256,7 +280,7 @@ async function main(): Promise<void> {
   writeFileSync(join(compatDir, 'components.lock.json'), `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
   writeFileSync(
     join(compatDir, 'dependency-tree.json'),
-    `${JSON.stringify({ generated_at: lock.frozen_at, profile: lock.profile_name, tree: JSON.parse(tree.stdout) }, null, 2)}\n`,
+    `${JSON.stringify({ generated_at: lock.frozen_at, profile: lock.profile_name, tree: sanitizedTree }, null, 2)}\n`,
     'utf8',
   );
   writeFileSync(
