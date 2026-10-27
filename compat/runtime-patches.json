@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-10-27T04:00:31.123Z",
+  "files": [
+    {
+      "packageName": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+      "file": "lib/client.js",
+      "changed": false,
+      "beforeSha256": "40aad88d7fcc74c0f9127be9199b42a84de031d7afb338d8c1044022beac66ac",
+      "afterSha256": "40aad88d7fcc74c0f9127be9199b42a84de031d7afb338d8c1044022beac66ac"
+    },
+    {
+      "packageName": "@beihaizb/dsh-notebook",
+      "file": "lib/index.js",
+      "changed": false,
+      "beforeSha256": "5f3e5e129359eb8a344782b5af6edbc3753b51d4a18cd34ae08767bdd497d0e1",
+      "afterSha256": "5f3e5e129359eb8a344782b5af6edbc3753b51d4a18cd34ae08767bdd497d0e1"
+    },
+    {
+      "packageName": "@changfenhuang/dsh-genui",
+      "file": "src/client/genui-runtime/normalize.ts",
+      "changed": false,
+      "beforeSha256": "73d9ffaa4f4e5d0f608f2a6275ec40a0f3285bc469f57587c9aa06ab2b680978",
+      "afterSha256": "73d9ffaa4f4e5d0f608f2a6275ec40a0f3285bc469f57587c9aa06ab2b680978"
+    },
+    {
+      "packageName": "@changfenhuang/dsh-genui",
+      "file": "lib/index.js",
+      "changed": false,
+      "beforeSha256": "27275e1e9b6f5c406079f87e531c86b0259e83552a4b7fe5682be2622e57ae7a",
+      "afterSha256": "27275e1e9b6f5c406079f87e531c86b0259e83552a4b7fe5682be2622e57ae7a"
+    },
+    {
+      "packageName": "@changfenhuang/dsh-genui",
+      "file": "lib/client.js",
+      "changed": false,
+      "beforeSha256": "f0a76435e93aae008cc32783e68ae085f958ec71e04f180930483560ea4afcde",
+      "afterSha256": "f0a76435e93aae008cc32783e68ae085f958ec71e04f180930483560ea4afcde"
+    },
+    {
+      "packageName": "@changfenhuang/dsh-genui",
+      "file": "lib/assets/standalone-runtime.js",
+      "changed": false,
+      "beforeSha256": "c2b95b27febb921de79549d1b03f673af58e340f655526ee34bc10b813ad4973",
+      "afterSha256": "c2b95b27febb921de79549d1b03f673af58e340f655526ee34bc10b813ad4973"
+    }
+  ]
+}

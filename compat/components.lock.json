@@ -4,7 +4,7 @@
   "platform": "linux-x86_64",
   "application": {
     "version": "0.1.0-dev",
-    "commit": "f091d3e4b79c2384e3d9519fe489cfd80f77ab54"
+    "commit": "2f8212d315e0e701a4107428739c217065c50b45"
   },
   "components": {
     "dsh": {
@@ -222,8 +222,8 @@
     }
   },
   "runtime": {
-    "node": "22.22.2",
-    "python": "3.12.3"
+    "node": "22.23.3",
+    "python": "3.11.5"
   },
   "locks": {
     "javascript": ".m0/profile/pnpm-lock.yaml",
@@ -233,7 +233,7 @@
     "compatibility_report": "compat/compatibility.json (pending-W7)",
     "offline_report": "compat/offline-verification.json (pending-W7)"
   },
-  "frozen_at": "2026-10-21T13:32:43.347Z",
+  "frozen_at": "2026-10-27T04:00:29.415Z",
   "frozen_by": "pnpm freeze (pnpm 10.33.0)",
   "profile_dir": ".m0/profile",
   "profile_name": "data-analysis-m0"
