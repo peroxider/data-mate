@@ -85,12 +85,14 @@ function installBrandPlugin(profileDir: string, env: NodeJS.ProcessEnv): void {
   const patchFile = join(profileDir, 'cordis.patch.yml');
   let patchText = existsSync(patchFile) ? readFileSync(patchFile, 'utf8') : '';
   if (!patchText.includes('ui-brand-analyst')) {
-    if (patchText.trim() === '[]') patchText = '';
+    // 模板给出的是注释 + 空数组 `[]`(注释行导致 trim()==='[]' 永不成立);
+    // 追加块级条目前必须去掉 `[]` 行,否则 flow 序列后跟块序列是非法 YAML。
+    patchText = patchText.replace(/^\s*\[\]\s*$/m, '').replace(/\s*$/, '');
     const entries = [
       ...(patchText.includes('ui-brand-official') ? [] : ['- id: ui-brand-official\n  disabled: true']),
       '- insert:\n    - id: ui-brand-analyst\n      name: dsh-brand-analyst',
     ].join('\n');
-    writeFileSync(patchFile, `${patchText.replace(/\s*$/, '')}\n${entries}\n`, 'utf8');
+    writeFileSync(patchFile, `${patchText}\n${entries}\n`, 'utf8');
     console.log('  cordis.patch.yml 已登记品牌槽位覆盖(并停用 ui-brand-official)');
   }
 
