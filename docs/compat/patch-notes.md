@@ -31,6 +31,7 @@ node --import tsx tools/apply-runtime-patches.ts --profile /path/to/profile --ap
 - **dsh 插件管理器 peer 门禁比裸 `pnpm add` 严格**:`@beihaizb/dsh-notebook@0.2.4` 的 peer `@deepseek-ai/dsh-tools@^0.1.0-rc.6` 与 dsh 0.2.0-rc.2 不兼容,拒绝安装且原子回滚("nothing was installed")。须 `dsh plugin allow-version <pkg>@<ver> --dsh-version 0.2.0-rc.2 --accept-risk` 精确版本豁免后重试;工具检测到拒绝时自动豁免重试。豁免仅对精确版本对生效。
 - **批量 `plugin add` 中断重试会丢 bundle 登记**:依赖写入 package.json,但 `dsh.profile.bundles` 不追加(重装已装包是 no-op,不会补登)。工具改为逐个安装,并在第 4 步自愈校验 bundles 完整性。
 - **构建脚本审批的方言按目标目录实测**:pnpm 版本经 corepack 随 cwd 解析(仓库根 pin 10.33.0,profile 目录用全局 11.28.2),v11 只认 `allowBuilds`,v10 只认 `onlyBuiltDependencies`。工具以 profile 目录为 cwd 探测版本后选择方言(`tools/profile-workspace.ts`)。dsh 内置 profile 模板自带 `nodeLinker: hoisted`。
+- **web 模板 `autoInstallPeers: false` 会导致启动崩**:dsh 内置 web 模板在 profile 的 pnpm-workspace.yaml 写死 `autoInstallPeers: false`,而 `dsh-app-boot` 依赖 peer `@deepseek-ai/cordis-plugin-group`(~1.0.4)运行时必需,缺失即引导报 `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/cordis-plugin-group'`。裸 `pnpm add` 路径(freeze/.m0/profile)默认 autoInstallPeers=true 所以不受影响,唯独经 dsh 模板组装的 profile 会踩中。组装工具在第 2 步把该字段翻为 `true` 并重解析依赖(实测 +169 包,peer 落顶层 node_modules)。手工修复已有 profile:改字段后在该 profile 目录跑 `pnpm install`。
 
 ## 原 M0 冻结记录
 

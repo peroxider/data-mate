@@ -110,7 +110,7 @@ pnpm profile:assemble                              # 默认 profile 名 data-ana
 pnpm profile:assemble --name <name> --home <dir>   # 自定义名称与 DSH_HOME
 ```
 
-工具流程全部经 dsh 官方 CLI:从内置 `web` 模板初始化 profile → 向模板的 `pnpm-workspace.yaml` 登记构建脚本审批(与 freeze 同源,见 `tools/profile-workspace.ts`)→ 逐个 `dsh plugin --profile <name> add <pkg>@<精确版本>` 安装五组件(dsh 插件管理器的 peer 门禁比裸 `pnpm add` 严格,notebook 对 dsh 0.2.0-rc.2 需要 `allow-version` 精确版本豁免,工具自动处理)→ 校验 `dsh.profile.bundles` 包含四插件(缺失自愈补登)→ 应用 `tools/runtime-patches.ts` 兼容补丁 → `--dump-config` 验证组合树。
+工具流程全部经 dsh 官方 CLI:从内置 `web` 模板初始化 profile → 向模板的 `pnpm-workspace.yaml` 登记构建脚本审批并把 `autoInstallPeers` 翻为 `true`(与 freeze 同源,见 `tools/profile-workspace.ts`;模板默认 false 会让 `dsh-app-boot` 的运行时 peer 缺失而启动崩,见 `docs/compat/patch-notes.md`)→ 逐个 `dsh plugin --profile <name> add <pkg>@<精确版本>` 安装五组件(dsh 插件管理器的 peer 门禁比裸 `pnpm add` 严格,notebook 对 dsh 0.2.0-rc.2 需要 `allow-version` 精确版本豁免,工具自动处理)→ 校验 `dsh.profile.bundles` 包含四插件(缺失自愈补登)→ 应用 `tools/runtime-patches.ts` 兼容补丁 → `--dump-config` 验证组合树。
 
 手工等价流程(需要排查细节时):
 

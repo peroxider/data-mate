@@ -89,6 +89,13 @@ async function main(): Promise<void> {
   const wsFile = join(profileDir, 'pnpm-workspace.yaml');
   if (!existsSync(wsFile)) throw new Error('模板未生成 pnpm-workspace.yaml,dsh 行为异常');
   console.log(`  审批登记: ${ensureApprovalsInWorkspaceYaml(wsFile, detectPnpmMajor(profileDir))}`);
+  // 模板设 autoInstallPeers:false,但 dsh-app-boot 的 peer(cordis-plugin-group 等)
+  // 运行时必需,实测缺失即启动崩(ERR_MODULE_NOT_FOUND);开启后与 freeze 路径语义一致。
+  const wsText = readFileSync(wsFile, 'utf8');
+  if (/^autoInstallPeers:\s*false$/m.test(wsText)) {
+    writeFileSync(wsFile, wsText.replace(/^autoInstallPeers:\s*false$/m, 'autoInstallPeers: true'), 'utf8');
+    console.log('  autoInstallPeers: false → true(补齐 dsh-app-boot 运行时 peer)');
+  }
 
   console.log('[3/5] 逐个安装五组件(dsh plugin add,peer 门禁拒绝时自动豁免重试)');
   for (const comp of [dshRuntime, ...plugins]) {
@@ -137,7 +144,9 @@ async function main(): Promise<void> {
 
   console.log(`\n产品 profile 组装完成: ${profileDir}`);
   console.log('启动(必须用 profile 内 CLI;带随机 token 的访问链接打印在日志首行):');
-  console.log(`  nohup ${cli} --profile ${args.name} --no-open --host 127.0.0.1 --port 8081 > dsh-web.log 2>&1 &`);
+  // 自定义 DSH_HOME 时引导也要带同名变量,否则 dsh 仍按 ~/.dsh 找 profile(实测报 profile does not exist)。
+  const homePrefix = args.home ? `DSH_HOME=${profileDir.replace(/\/profiles\/[^/]+$/, '')} ` : '';
+  console.log(`  ${homePrefix}nohup ${cli} --profile ${args.name} --no-open --host 127.0.0.1 --port 8081 > dsh-web.log 2>&1 &`);
 }
 
 main().catch((error: unknown) => {
