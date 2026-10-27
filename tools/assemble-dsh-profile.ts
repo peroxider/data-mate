@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,8 @@ import { detectPnpmMajor, ensureApprovalsInWorkspaceYaml } from './profile-works
 //   3. dsh plugin --profile <name> add <pkg>@<精确版本> 逐个注册五组件;
 //      peer 门禁拒绝时按提示 allow-version 精确版本豁免后重试(notebook 实测需要)
 //   4. 自愈校验:dsh.profile.bundles 必须包含四个插件(实测批量 add 中断重试会丢 bundle 登记)
-//   5. 应用 runtime-patches 兼容层,--dump-config 验证组合树,.bin/dsh 就位
+//   5. 安装品牌插件(packaging/brand,logo/侧边栏名/首屏标题的槽位覆盖)并登记 patch 层
+//   6. 应用 runtime-patches 兼容层(含品牌文案补丁),--dump-config 验证组合树,.bin/dsh 就位
 // 启动必须用 profile 内 CLI(README FAQ:dsh-app-boot 双实例问题)。
 // ---------------------------------------------------------------------------
 
@@ -59,6 +60,45 @@ function resolveDshBinary(args: Args): string {
   throw new Error('未找到 dsh 二进制:先运行 pnpm freeze 生成 .m0/profile,或用 --dsh <路径> 指定');
 }
 
+/** 品牌定制(logo/名称/标语/标题)固化:插件源码随仓库分发,装进 profile 的
+ * local/ 并以 file: 依赖登记;侧边栏与首屏槽位覆盖经 cordis.patch.yml 注册
+ * (新增条目必须用 insert: 语法,裸 id+name 只对已存在条目生效,见 README FAQ)。
+ * 文案补丁(hero 标语/页面标题/manifest)由 applyRuntimePatches 的品牌条目负责。
+ * 幂等:插件目录、依赖登记、patch 登记各自存在即跳过。 */
+function installBrandPlugin(profileDir: string, env: NodeJS.ProcessEnv): void {
+  const source = join(repoRoot, 'packaging', 'brand', 'dsh-brand-analyst');
+  if (!existsSync(join(source, 'package.json'))) throw new Error(`缺少品牌插件源码: ${source}(应随仓库分发)`);
+  const pluginDir = join(profileDir, 'local', 'dsh-brand-analyst');
+  if (!existsSync(pluginDir)) {
+    cpSync(source, pluginDir, { recursive: true });
+    console.log('  品牌插件 → local/dsh-brand-analyst');
+  }
+
+  const pkgFile = join(profileDir, 'package.json');
+  const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { dependencies?: Record<string, string> };
+  if (pkg.dependencies?.['dsh-brand-analyst'] === undefined) {
+    pkg.dependencies = { ...pkg.dependencies, 'dsh-brand-analyst': 'file:./local/dsh-brand-analyst' };
+    writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
+    console.log('  已登记依赖 dsh-brand-analyst(file:./local/dsh-brand-analyst)');
+  }
+
+  const patchFile = join(profileDir, 'cordis.patch.yml');
+  let patchText = existsSync(patchFile) ? readFileSync(patchFile, 'utf8') : '';
+  if (!patchText.includes('ui-brand-analyst')) {
+    if (patchText.trim() === '[]') patchText = '';
+    const entries = [
+      ...(patchText.includes('ui-brand-official') ? [] : ['- id: ui-brand-official\n  disabled: true']),
+      '- insert:\n    - id: ui-brand-analyst\n      name: dsh-brand-analyst',
+    ].join('\n');
+    writeFileSync(patchFile, `${patchText.replace(/\s*$/, '')}\n${entries}\n`, 'utf8');
+    console.log('  cordis.patch.yml 已登记品牌槽位覆盖(并停用 ui-brand-official)');
+  }
+
+  const install = spawnSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: profileDir, encoding: 'utf8', shell: false, maxBuffer: 256 * 1024 * 1024, env });
+  if (install.status !== 0) throw new Error(`品牌依赖安装失败(profile 内 pnpm install):\n${(install.stderr || install.stdout).slice(-2000)}`);
+  console.log('  profile 内 pnpm install 完成(品牌插件就位)');
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const lockFile = join(repoRoot, 'compat', 'components.lock.json');
@@ -79,13 +119,13 @@ async function main(): Promise<void> {
   }
   const env = { ...process.env, DSH_HOME: home };
 
-  console.log(`[1/5] 从内置 web 模板初始化 profile: ${profileDir}(引导: ${dshBin})`);
+  console.log(`[1/6] 从内置 web 模板初始化 profile: ${profileDir}(引导: ${dshBin})`);
   const created = run(dshBin, [args.name, '--from-default-profile', 'web', '--dump-config'], env);
   if (created.status !== 0) {
     throw new Error(`profile 初始化失败:\n${(created.stderr || created.stdout).slice(-2000)}`);
   }
 
-  console.log('[2/5] 登记依赖构建脚本审批(pnpm 默认拦截会使安装退出 1)');
+  console.log('[2/6] 登记依赖构建脚本审批(pnpm 默认拦截会使安装退出 1)');
   const wsFile = join(profileDir, 'pnpm-workspace.yaml');
   if (!existsSync(wsFile)) throw new Error('模板未生成 pnpm-workspace.yaml,dsh 行为异常');
   console.log(`  审批登记: ${ensureApprovalsInWorkspaceYaml(wsFile, detectPnpmMajor(profileDir))}`);
@@ -97,7 +137,7 @@ async function main(): Promise<void> {
     console.log('  autoInstallPeers: false → true(补齐 dsh-app-boot 运行时 peer)');
   }
 
-  console.log('[3/5] 逐个安装五组件(dsh plugin add,peer 门禁拒绝时自动豁免重试)');
+  console.log('[3/6] 逐个安装五组件(dsh plugin add,peer 门禁拒绝时自动豁免重试)');
   for (const comp of [dshRuntime, ...plugins]) {
     const pin = `${comp.package}@${comp.version}`;
     const addArgs = ['plugin', '--profile', args.name, 'add', pin];
@@ -119,7 +159,7 @@ async function main(): Promise<void> {
     console.log(`  ✔ ${pin}`);
   }
 
-  console.log('[4/5] 校验 bundles 完整性(缺失则自愈补登)');
+  console.log('[4/6] 校验 bundles 完整性(缺失则自愈补登)');
   const pkgFile = join(profileDir, 'package.json');
   const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as {
     dsh: { profile: { bundles: string[] } };
@@ -132,7 +172,9 @@ async function main(): Promise<void> {
     console.log(`  补登 bundles: ${missing.join(', ')}`);
   }
 
-  console.log('[5/5] 应用 runtime-patches 兼容层并验证组合树');
+  installBrandPlugin(profileDir, env);
+
+  console.log('[6/6] 应用 runtime-patches 兼容层并验证组合树');
   const patched = applyRuntimePatches(profileDir, true);
   console.log(`  补丁目标 ${patched.length} 个,其中变化 ${patched.filter((p) => p.changed).length} 个`);
   const dump = run(dshBin, [args.name, '--dump-config'], env);

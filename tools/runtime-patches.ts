@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { brand } from './brand.js';
 
 export interface RuntimePatch {
   packageName: string;
@@ -70,10 +71,32 @@ export function patchGenuiBrowser(source: string): string {
     'else if($1===`table`&&typeof $2.details===`boolean`)delete $2.details;/* data-mate:table-details-flag */else if($1===`table`&&Array.isArray($2.details))');
 }
 
+/** 品牌定制:对话首屏大标题(中英两个 locale 条目)。manifest/标题见
+ * patchHtmlTitle/patchManifestName;可见名称本体在品牌插件(packaging/brand)。 */
+export function patchConversationHero(source: string): string {
+  if (source.includes('data-mate:hero-headline')) return source;
+  source = replaceOnce(source, '"hero.headline": "探索未至之境"', `"hero.headline": "${brand.heroHeadlineZh}" /* data-mate:hero-headline */`);
+  return replaceOnce(source, '"Into the Unknown"', `"${brand.heroHeadlineEn}"`);
+}
+
+export function patchHtmlTitle(source: string): string {
+  if (source.includes('data-mate:html-title')) return source;
+  return replaceOnce(source, `<title>${brand.officialProductName}</title>`, `<title>${brand.productName}</title> <!-- data-mate:html-title -->`);
+}
+
+/** webmanifest 是 JSON,不能加注释;用非标准字段做幂等标记(PWA 清单忽略未知键)。 */
+export function patchManifestName(source: string): string {
+  if (source.includes('"x-data-mate"')) return source;
+  return replaceOnce(source, `"name": "${brand.officialProductName}"`, `"name": "${brand.productName}",\n  "x-data-mate": "brand"`);
+}
+
 const genui = { packageName: '@changfenhuang/dsh-genui', version: '0.11.4' };
 export const runtimePatches: RuntimePatch[] = [
   { packageName: '@deepseek-ai/dsh-client-ui-sidebar-documentpreview', version: '0.2.0-rc.2', file: 'lib/client.js', transform: patchHtmlPreview },
   { packageName: '@beihaizb/dsh-notebook', version: '0.2.4', file: 'lib/index.js', transform: patchNotebook },
+  { packageName: '@deepseek-ai/dsh-client-ui-conversation', version: '0.2.0-rc.2', file: 'lib/client.js', transform: patchConversationHero },
+  { packageName: '@deepseek-ai/dsh-web-frontend', version: '0.2.0-rc.2', file: 'dist/index.html', transform: patchHtmlTitle },
+  { packageName: '@deepseek-ai/dsh-web-frontend', version: '0.2.0-rc.2', file: 'dist/manifest.webmanifest', transform: patchManifestName },
   { ...genui, file: 'src/client/genui-runtime/normalize.ts', transform: patchGenuiSource },
   { ...genui, file: 'lib/index.js', transform: patchGenuiHost },
   { ...genui, file: 'lib/client.js', transform: patchGenuiBrowser },

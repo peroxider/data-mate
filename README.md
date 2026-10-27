@@ -110,7 +110,9 @@ pnpm profile:assemble                              # 默认 profile 名 data-ana
 pnpm profile:assemble --name <name> --home <dir>   # 自定义名称与 DSH_HOME
 ```
 
-工具流程全部经 dsh 官方 CLI:从内置 `web` 模板初始化 profile → 向模板的 `pnpm-workspace.yaml` 登记构建脚本审批并把 `autoInstallPeers` 翻为 `true`(与 freeze 同源,见 `tools/profile-workspace.ts`;模板默认 false 会让 `dsh-app-boot` 的运行时 peer 缺失而启动崩,见 `docs/compat/patch-notes.md`)→ 逐个 `dsh plugin --profile <name> add <pkg>@<精确版本>` 安装五组件(dsh 插件管理器的 peer 门禁比裸 `pnpm add` 严格,notebook 对 dsh 0.2.0-rc.2 需要 `allow-version` 精确版本豁免,工具自动处理)→ 校验 `dsh.profile.bundles` 包含四插件(缺失自愈补登)→ 应用 `tools/runtime-patches.ts` 兼容补丁 → `--dump-config` 验证组合树。
+工具流程全部经 dsh 官方 CLI:从内置 `web` 模板初始化 profile → 向模板的 `pnpm-workspace.yaml` 登记构建脚本审批并把 `autoInstallPeers` 翻为 `true`(与 freeze 同源,见 `tools/profile-workspace.ts`;模板默认 false 会让 `dsh-app-boot` 的运行时 peer 缺失而启动崩,见 `docs/compat/patch-notes.md`)→ 逐个 `dsh plugin --profile <name> add <pkg>@<精确版本>` 安装五组件(dsh 插件管理器的 peer 门禁比裸 `pnpm add` 严格,notebook 对 dsh 0.2.0-rc.2 需要 `allow-version` 精确版本豁免,工具自动处理)→ 校验 `dsh.profile.bundles` 包含四插件(缺失自愈补登)→ **安装产品品牌定制**(`packaging/brand/dsh-brand-analyst` 槽位插件覆盖侧边栏 logo/名称与首屏标志,`tools/runtime-patches.ts` 品牌文案补丁替换首屏标语与页面标题;品牌常量单一来源 `tools/brand.ts`)→ 应用其余兼容补丁 → `--dump-config` 验证组合树。
+
+品牌文案/图标要改时:改 `tools/brand.ts`(标语、产品名)与 `packaging/brand/dsh-brand-analyst/lib/client.js`(logo SVG、侧边栏名),对新环境重跑 `profile:assemble` 即生效;已有 profile 可用 `pnpm runtime:patch --profile <profile目录> --apply` 重打文案补丁(先不带 `--apply` 可预览变更,幂等;注意 pnpm 会把 `--` 原样传给脚本,不要写成 `-- --profile`)。
 
 手工等价流程(需要排查细节时):
 
@@ -195,10 +197,11 @@ data-mate/
 | `pnpm build` / `pnpm clean` | `tsc -b` 增量构建 / 清理 | ✅ 可用 |
 | `pnpm test` / `pnpm test:watch` | vitest 单测 | ✅ 248 用例全绿 |
 | `pnpm lint` | eslint(flat config) | ✅ 可用 |
-| `pnpm doctor --config …` | 环境自检:Node 版本、Python 依赖、目录可写性、组件锁新鲜度;**绝不安装依赖** | ✅ 可用 |
+| `pnpm doctor` | 环境自检:Node 版本、Python 依赖、目录可写性、组件锁新鲜度;**绝不安装依赖**(脚本已内置 `--config config/dev.example.yaml`,自定义配置用 `pnpm run doctor --config=<路径>`;注意 pnpm 会拦截裸 `--config`) | ✅ 可用 |
 | `pnpm version --json` | 离线 BOM 版本摘要(五组件 + integrity) | ✅ 可用 |
 | `pnpm freeze` | 安装五个固定版本组件进隔离 profile,生成 `compat/components.lock.json` | ✅ 可用(幂等) |
-| `pnpm profile:assemble` | 从内置 web 模板组装 `~/.dsh/profiles` 产品 profile(五组件精确版本 + 构建审批 + 兼容补丁,部署第 5 步) | ✅ 可用(幂等不可覆盖已有 profile) |
+| `pnpm profile:assemble` | 从内置 web 模板组装 `~/.dsh/profiles` 产品 profile(五组件精确版本 + 构建审批 + 品牌定制 + 兼容补丁,部署第 5 步) | ✅ 可用(幂等不可覆盖已有 profile) |
+| `pnpm runtime:patch` | 对已组装 profile 应用兼容/品牌文案补丁(`--profile <dir> [--apply]`,缺省 dry-run) | ✅ 可用(幂等,含备份) |
 | `pnpm verify` | 执行 §7 兼容性矩阵,生成 `compat/compatibility.json` | ✅ 可用(4 pass / 5 pending) |
 | `pnpm config:validate` | 校验 YAML 配置 | ✅ 可用 |
 
