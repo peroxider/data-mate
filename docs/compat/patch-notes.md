@@ -25,6 +25,13 @@ node --import tsx tools/apply-runtime-patches.ts --profile /path/to/profile --ap
 
 回归用例在 `tools/runtime-patches.test.ts`，覆盖 HTML 的 iframe 属性、队列 Promise 隔离、等待完成语义、GenUI 嵌套表格和正常/异常详情。未安装冻结 profile 的源码环境会明确跳过这些依赖集成用例。
 
+## 2026-10-27 产品 profile 组装路径
+
+- 组装工具:`tools/assemble-dsh-profile.ts`(`pnpm profile:assemble`)。全部经 dsh 官方 CLI:`--from-default-profile web` 初始化、`dsh plugin --profile <name> add` 逐个注册五组件精确版本、`--dump-config` 验证组合树;应用与 freeze 同源的 runtime-patches。沙箱与本机 `~/.dsh/profiles/data-analysis-m0` 均已验证(组合树含四插件,`.bin/dsh` 就位)。
+- **dsh 插件管理器 peer 门禁比裸 `pnpm add` 严格**:`@beihaizb/dsh-notebook@0.2.4` 的 peer `@deepseek-ai/dsh-tools@^0.1.0-rc.6` 与 dsh 0.2.0-rc.2 不兼容,拒绝安装且原子回滚("nothing was installed")。须 `dsh plugin allow-version <pkg>@<ver> --dsh-version 0.2.0-rc.2 --accept-risk` 精确版本豁免后重试;工具检测到拒绝时自动豁免重试。豁免仅对精确版本对生效。
+- **批量 `plugin add` 中断重试会丢 bundle 登记**:依赖写入 package.json,但 `dsh.profile.bundles` 不追加(重装已装包是 no-op,不会补登)。工具改为逐个安装,并在第 4 步自愈校验 bundles 完整性。
+- **构建脚本审批的方言按目标目录实测**:pnpm 版本经 corepack 随 cwd 解析(仓库根 pin 10.33.0,profile 目录用全局 11.28.2),v11 只认 `allowBuilds`,v10 只认 `onlyBuiltDependencies`。工具以 profile 目录为 cwd 探测版本后选择方言(`tools/profile-workspace.ts`)。dsh 内置 profile 模板自带 `nodeLinker: hoisted`。
+
 ## 原 M0 冻结记录
 
 - 生成:2026-10-08(`pnpm freeze` + `pnpm verify` 实际运行产物)

@@ -17,6 +17,7 @@
     "doctor": "node apps/cli/dist/index.js doctor --config config/dev.example.yaml",
     "version": "node apps/cli/dist/index.js version --json",
     "freeze": "tsx tools/freeze-components.ts",
+    "profile:assemble": "tsx tools/assemble-dsh-profile.ts",
     "verify": "tsx tools/verify-contracts.ts",
     "runtime:patch": "tsx tools/apply-runtime-patches.ts",
     "dist:build": "tsx distributions/assemble.ts",

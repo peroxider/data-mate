@@ -15,8 +15,8 @@
 | DSH 集成层 | `packages/dsh-integration` | ✅ 受控启动(argv 数组,禁 npx) |
 | 其余领域包 | `artifacts` / `data-adapters` / `model-service` / `notebook-adapter` / `web-extension` | ⬜ 空骨架 |
 | Python 运行时自检 | `python/analyst_runtime` | ✅ `doctor --json` 只读探测 |
-| 组件冻结 / 契约验证工具 | `tools/` | ✅ freeze 已交付;verify 4 pass / 5 pending(附证据) |
-| 契约测试 + fixtures | `tests/` | ✅ 47 用例全绿 |
+| 组件冻结 / 契约验证工具 | `tools/` | ✅ freeze / profile:assemble 已交付;verify 4 pass / 5 pending(附证据) |
+| 契约测试 + fixtures | `tests/` | ✅ 248 用例全绿 |
 | ADR / 兼容性补丁说明 | `docs/adr/`、`docs/compat/` | ✅ ADR001–006 + patch-notes |
 | 组件锁与兼容性证据 | `compat/` | ✅ components.lock / compatibility / dependency-tree / tool-inventory |
 
@@ -101,9 +101,29 @@ nohup node current/app/dist/index.js serve --config ./current/config/config.exam
 
 API 前缀 `/api/v1`,认证为 `Authorization: Bearer <local-token>`(token 在 `current/config/.m0/state/credentials/local-token`)。
 
-### 5. 启动 DSH Web UI
+### 5. 组装产品 DSH profile
 
-Web UI 由 DSH profile(`~/.dsh/profiles/<name>/`)组装:bundles 列表 + `cordis.patch.yml` 用户补丁层。两条纪律:
+Web UI 运行在 DSH profile(`~/.dsh/profiles/<name>/`)之上,profile 必须自带五组件依赖并由 profile 内 CLI 引导。用工具一键组装(前置:已在本仓库跑过 `pnpm freeze`,它同时生成 `.m0/profile` 与 `compat/components.lock.json`):
+
+```bash
+pnpm profile:assemble                              # 默认 profile 名 data-analysis-m0,装到 ~/.dsh/profiles/
+pnpm profile:assemble --name <name> --home <dir>   # 自定义名称与 DSH_HOME
+```
+
+工具流程全部经 dsh 官方 CLI:从内置 `web` 模板初始化 profile → 向模板的 `pnpm-workspace.yaml` 登记构建脚本审批(与 freeze 同源,见 `tools/profile-workspace.ts`)→ 逐个 `dsh plugin --profile <name> add <pkg>@<精确版本>` 安装五组件(dsh 插件管理器的 peer 门禁比裸 `pnpm add` 严格,notebook 对 dsh 0.2.0-rc.2 需要 `allow-version` 精确版本豁免,工具自动处理)→ 校验 `dsh.profile.bundles` 包含四插件(缺失自愈补登)→ 应用 `tools/runtime-patches.ts` 兼容补丁 → `--dump-config` 验证组合树。
+
+手工等价流程(需要排查细节时):
+
+```bash
+.m0/profile/node_modules/.bin/dsh <name> --from-default-profile web --dump-config   # 初始化
+# 向 <profile>/pnpm-workspace.yaml 登记构建脚本审批(node-pty/koffi/protobufjs/@google/genai/@deepseek-ai/dsh-subprocess-local)
+.m0/profile/node_modules/.bin/dsh plugin --profile <name> add <pkg>@<版本>          # 五组件逐个
+.m0/profile/node_modules/.bin/dsh --profile <name> --dump-config                    # 验证组合树
+```
+
+### 6. 启动 DSH Web UI
+
+Web UI 由产品 profile 的 bundles 列表 + `cordis.patch.yml` 用户补丁层组装(第 5 步已组装完成)。两条纪律:
 
 - **profile 必须自带 `@deepseek-ai/dsh` CLI 并用它引导**(写进 profile 的 dependencies)。用外部二进制引导会导致 boot 进程与 profile 内 `dsh-config-editor` 各持一份 `dsh-app-boot` 模块实例,settings 写入报 "profile reload requires the root Include entry"(见 FAQ);
 - 自定义 profile 直接 `dsh --profile <name>` 引导(`dsh web` 子命令不接受 `--profile`):
@@ -173,11 +193,12 @@ data-mate/
 | 脚本 | 作用 | 状态 |
 | --- | --- | --- |
 | `pnpm build` / `pnpm clean` | `tsc -b` 增量构建 / 清理 | ✅ 可用 |
-| `pnpm test` / `pnpm test:watch` | vitest 单测 | ✅ 47 用例全绿 |
+| `pnpm test` / `pnpm test:watch` | vitest 单测 | ✅ 248 用例全绿 |
 | `pnpm lint` | eslint(flat config) | ✅ 可用 |
 | `pnpm doctor --config …` | 环境自检:Node 版本、Python 依赖、目录可写性、组件锁新鲜度;**绝不安装依赖** | ✅ 可用 |
 | `pnpm version --json` | 离线 BOM 版本摘要(五组件 + integrity) | ✅ 可用 |
 | `pnpm freeze` | 安装五个固定版本组件进隔离 profile,生成 `compat/components.lock.json` | ✅ 可用(幂等) |
+| `pnpm profile:assemble` | 从内置 web 模板组装 `~/.dsh/profiles` 产品 profile(五组件精确版本 + 构建审批 + 兼容补丁,部署第 5 步) | ✅ 可用(幂等不可覆盖已有 profile) |
 | `pnpm verify` | 执行 §7 兼容性矩阵,生成 `compat/compatibility.json` | ✅ 可用(4 pass / 5 pending) |
 | `pnpm config:validate` | 校验 YAML 配置 | ✅ 可用 |
 
@@ -213,7 +234,7 @@ data-mate/
 
 **Q: Web UI 显示"暂时无法保存确认状态,请重试。"(或保存任何设置报 "profile reload requires the root Include entry")**
 
-profile 由外部 DSH 二进制引导,boot 进程与 profile 内插件各持有一份 `dsh-app-boot` 模块实例,根 Include 登记在另一份的 `bootstrapIncludes` WeakMap 里。修法:把 `@deepseek-ai/dsh` 加进 profile 的 dependencies,并始终用 `~/.dsh/profiles/<name>/node_modules/.bin/dsh` 引导(见部署第 5 步)。
+profile 由外部 DSH 二进制引导,boot 进程与 profile 内插件各持有一份 `dsh-app-boot` 模块实例,根 Include 登记在另一份的 `bootstrapIncludes` WeakMap 里。修法:把 `@deepseek-ai/dsh` 加进 profile 的 dependencies,并始终用 `~/.dsh/profiles/<name>/node_modules/.bin/dsh` 引导(见部署第 6 步;profile 组装见第 5 步)。
 
 **Q: 重启 dsh/serve 报 `EADDRINUSE: 8081/3080 already in use`**
 
@@ -238,6 +259,10 @@ dsh 的 `bin.js` 会派生子 node 进程,而后台化启动时 `$!` 记到的�
 **Q: `.m0/profile` 的 node_modules 全是断链 / 根 pnpm-lock 出现上万行假差异**
 
 `.m0/profile` 是独立 pnpm workspace(自带 `pnpm-workspace.yaml` 与 `pnpm-lock.yaml`)。断链用 `pnpm freeze` 幂等重建;根 lock 若残留 `.m0/profile` importer,在仓库根跑 `pnpm install --lockfile-only` 重新生成即可。
+
+**Q: `pnpm freeze` 报 `ERR_PNPM_IGNORED_BUILDS`,或报 `ENOENT .../dsh-client-ui-sidebar-documentpreview/package.json`**
+
+freeze 会在 `.m0/profile/pnpm-workspace.yaml` 缺失时自动生成正确配置(`nodeLinker: hoisted` 布局 + 五个依赖包的构建脚本审批,按实际 pnpm 版本选择 `allowBuilds`/`onlyBuiltDependencies` 方言,见 `tools/profile-workspace.ts`)。该文件被 gitignore,陈旧或损坏时删除 `.m0/profile` 重跑 `pnpm freeze` 即可。老环境手动修法:构建脚本审批用 `pnpm approve-builds --all`(pnpm v11 已将 `onlyBuiltDependencies` 更名为 `allowBuilds`,写 package.json 的 `pnpm` 字段无效);补丁目标 documentpreview 是 dsh 的传递依赖,`tools/runtime-patches.ts` 按 `node_modules/<包名>` 直连,isolated 布局下不在顶层,须改 `nodeLinker: hoisted` 并重装(改布局必须重装)。注意 pnpm 版本按 cwd 经 corepack 解析:仓库根是 pin 的 10.33.0,profile 目录则用全局版本,方言要按 profile 目录实测选择。
 
 **Q: WSL 下 vitest 偶发 worker RPC 超时退出**
 

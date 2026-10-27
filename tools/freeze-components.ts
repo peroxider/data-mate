@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import { applyRuntimePatches } from './runtime-patches.js';
+import { standaloneWorkspaceYaml, detectPnpmMajor } from './profile-workspace.js';
 
 // ---------------------------------------------------------------------------
 // W6 组件冻结:把五个固定版本组件安装进隔离 profile(§21/计划 D4),
@@ -64,6 +65,12 @@ function prepareProfile(): void {
       `${JSON.stringify({ name: 'data-analysis-m0-profile', private: true, version: '0.0.0' }, null, 2)}\n`,
       'utf8',
     );
+  }
+  // workspace 配置随 freeze 幂等生成(存在则不覆盖):pnpm 默认拦截构建脚本会令
+  // pnpm add 退出 1,runtime-patches 又要求 hoisted 布局,见 tools/profile-workspace.ts。
+  const wsFile = join(profileDir, 'pnpm-workspace.yaml');
+  if (!existsSync(wsFile)) {
+    writeFileSync(wsFile, standaloneWorkspaceYaml(detectPnpmMajor(profileDir)), 'utf8');
   }
 }
 
