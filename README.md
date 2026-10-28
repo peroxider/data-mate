@@ -271,6 +271,29 @@ freeze 会在 `.m0/profile/pnpm-workspace.yaml` 缺失时自动生成正确配�
 
 `/mnt/c` 的 9p 文件系统 I/O 抖动所致,重跑即可;仓库放在 WSL 原生文件系统(如 `~/`)可根治。
 
+**Q: 设置页报"加载提供商目录失败: settings are unavailable in this browser"**
+
+经非回环 origin(`http://<服务器IP或域名>:<端口>`)访问所致。DSH 0.2.0-rc.2 客户端围栏:`dsh-client-ui-settings` 的 `apply()` 按页面 hostname 选 `persistence = ctx.remote.$host.isLoopback ? "host" : "memory"`,非回环时 settings 镜像进入 memory 模式、永不拉取设置文档,`dsh-client-ui-settings-models` 拿不到视图即显示这句兜底文案——通用设置/内置插件/Agent 预设等所有走共享镜像的页面同此。`isLoopbackHostname` 只认 `localhost`/`[::1]`/`127.x`,且该判定不读任何服务端配置:`--trusted-host` 与绑定 0.0.0.0 放开的是 /api 可达性(服务端围栏,`dsh-client-connection` 的 `isTrustedApiRequest`),管不到它。最简修复:SSH 转发后用 localhost 访问——`ssh -L 8081:127.0.0.1:8081 <user>@<server>`,浏览器开 `http://localhost:8081`。局域网全量部署见下一 FAQ。
+
+**Q: 如何让局域网用户直接访问 Web UI 且设置页可用(生产级方案)**
+
+三层组合,各管一道围栏:
+
+1. **dsh 保持回环绑定,对外暴露交给 nginx**:`--host 127.0.0.1 --port 8081`,nginx 443 TLS 反代;启动加 `--trusted-host <域名>`(不带端口的形态,匹配该主机名任意端口)。经反代后浏览器 `Origin` 与透传 `Host` 一致、`sec-fetch-site: same-origin`,服务端围栏三项检查全过。docker bridge 下 `resolveLanTrust` 在容器内采样网卡只得 172.x,域名信任必须如此显式声明。
+
+2. nginx 反代四个要点(缺一即踩坑):
+
+```nginx
+proxy_set_header Host $host;        # 围栏依赖 Host/Origin 一致,必须透传,改写即被 Origin 校验拒绝
+proxy_http_version 1.1;             # WebSocket 升级(Upgrade/Connection 头)
+proxy_buffering off;                # SSE 流禁缓冲
+proxy_read_timeout 3600s;           # agent 长回路,默认 60s 会掐断
+```
+
+3. **两条 bundle 补丁翻客户端围栏**(登记进 `tools/runtime-patches.ts` 的 `runtimePatches`,写法同现有条目):`@deepseek-ai/dsh-client-ui-settings/lib/client.js` 的 persistence 三目固定为 `"host"`;`@deepseek-ai/dsh-client-ui-settings-general/lib/client.js` 的 `SettingsDocumentStore` 创建去掉 `isLoopback` 门。不要动 `dsh-client-connection` 的 `isLoopbackHostname`——wire root 包,影响面不可控。锚点断裂即启动报错(`replaceOnce` 机制),DSH 升级后按报错重定位;同步更新 `compat/runtime-patches.json` 与 `docs/compat/patch-notes`。
+
+安全边界:DNS rebinding/跨站防御、token 认证、TLS、密钥本体不出服务端(配置里只有 `credential_ref` 引用)全部保持;放开的是持 token 的 LAN 用户可在 UI 读写配置结构与 env 变量**名**(凭 token 走 API 本就可达,边际暴露≈0),语义上配置管理从管理员扩展到全体 LAN 用户,需团队知晓。降级变体(可信内网、免 nginx):dsh 直接 `--host 0.0.0.0 --trusted-host <IP或域名>` + 同两条补丁,代价是明文 HTTP。长期推上游提供「声明信任主机即放开 settings」的官方开关,补丁即可退役。
+
 ## 相关文档
 
 - 详细设计:`docs/Data_Analysis_Agent_Requirements_Detailed_Design_v0.1.md`
